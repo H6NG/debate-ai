@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Check, ExternalLink, Eye, EyeOff, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Eye, EyeOff, Trash2, X } from "lucide-react";
 import { PROVIDER_CATALOG } from "@/lib/provider-catalog";
-import {
-  clearFirebaseConfig,
-  loadFirebaseConfig,
-  saveFirebaseConfig,
-} from "@/lib/firebase-sync";
+import { BUILTIN_PERSONAS } from "@/lib/personas";
+import { CloudSync } from "@/components/CloudSync";
+import pkg from "../../package.json";
+import type { HistoryEntry } from "@/lib/history";
 import type { ProviderId } from "@/lib/types";
 
 function readStored(key: string, fallback: string): string {
@@ -21,9 +20,11 @@ function writeStored(key: string, value: string): void {
 
 interface SettingsViewProps {
   onBack: () => void;
+  history: HistoryEntry[];
+  onHistoryChange: (entries: HistoryEntry[]) => void;
 }
 
-export function SettingsView({ onBack }: SettingsViewProps) {
+export function SettingsView({ onBack, history, onHistoryChange }: SettingsViewProps) {
   const [keys, setKeys] = useState<Record<string, string>>(() =>
     Object.fromEntries(PROVIDER_CATALOG.map((p) => [p.id, readStored(`debate-ai:apiKey:${p.id}`, "")]))
   );
@@ -34,13 +35,23 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     () => readStored("debate-ai:provider", "anthropic") as ProviderId
   );
   const [shown, setShown] = useState<Record<string, boolean>>({});
-  const [firebaseText, setFirebaseText] = useState(() => {
-    if (typeof window === "undefined") return "";
-    const cfg = loadFirebaseConfig();
-    return cfg ? JSON.stringify(cfg) : "";
+  const [moderatorModelId, setModeratorModelId] = useState(() =>
+    readStored("debate-ai:moderatorModelId", "")
+  );
+  const [runtimeLabel] = useState(() => {
+    if (typeof window === "undefined") return "Browser";
+    const desktop = (
+      window as unknown as { desktop?: { isDesktop?: boolean; platform?: string } }
+    ).desktop;
+    if (desktop?.isDesktop) {
+      return `Desktop app (${desktop.platform === "darwin" ? "macOS" : (desktop.platform ?? "desktop")})`;
+    }
+    return "Browser (localhost)";
   });
-  const [firebaseError, setFirebaseError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
+  const [tests, setTests] = useState<Record<string, { status: "testing" | "ok" | "fail"; message: string }>>(
+    {}
+  );
 
   function flash(id: string): void {
     setSavedFlash(id);
@@ -67,20 +78,51 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     flash("provider");
   }
 
-  function updateFirebaseText(value: string): void {
-    setFirebaseText(value);
-    if (value.trim() === "") {
-      clearFirebaseConfig();
-      setFirebaseError(null);
-      flash("firebase");
+  function updateModeratorModelId(value: string): void {
+    setModeratorModelId(value);
+    writeStored("debate-ai:moderatorModelId", value);
+    flash("moderator");
+  }
+
+  async function testKey(id: string): Promise<void> {
+    const apiKey = (keys[id] ?? "").trim();
+    if (apiKey === "") {
+      setTests((prev) => ({ ...prev, [id]: { status: "fail", message: "Enter a key first." } }));
       return;
     }
+    setTests((prev) => ({ ...prev, [id]: { status: "testing", message: "Testing…" } }));
     try {
-      saveFirebaseConfig(JSON.parse(value) as Parameters<typeof saveFirebaseConfig>[0]);
-      setFirebaseError(null);
-      flash("firebase");
+      const res = await fetch("/api/test-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: id,
+          apiKey,
+          modelId: (models[id] ?? "").trim() || undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        latencyMs?: number;
+        error?: string;
+      } | null;
+      if (res.ok && data?.ok) {
+        setTests((prev) => ({
+          ...prev,
+          [id]: {
+            status: "ok",
+            message: `Key works${typeof data.latencyMs === "number" ? ` (${data.latencyMs} ms)` : ""}.`,
+          },
+        }));
+      } else {
+        const raw = data?.error ?? `Request failed (${res.status}).`;
+        setTests((prev) => ({
+          ...prev,
+          [id]: { status: "fail", message: raw.length > 160 ? `${raw.slice(0, 160)}…` : raw },
+        }));
+      }
     } catch {
-      setFirebaseError("Not valid JSON — previous config kept.");
+      setTests((prev) => ({ ...prev, [id]: { status: "fail", message: "Network error." } }));
     }
   }
 
@@ -93,7 +135,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-10">
+    <div className="w-full">
       <header className="mb-8 flex items-center gap-3">
         <button
           type="button"
@@ -133,6 +175,30 @@ export function SettingsView({ onBack }: SettingsViewProps) {
               </option>
             ))}
           </select>
+        </section>
+
+        <section className="space-y-2">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-sm font-medium text-[var(--text-primary)]">
+              Moderator model <span className="font-normal text-[var(--text-muted)]">(optional)</span>
+            </h2>
+            {savedFlash === "moderator" && (
+              <span className="flex items-center gap-1 text-xs text-[var(--status-good-text)]">
+                <Check size={12} /> Saved
+              </span>
+            )}
+          </div>
+          <input
+            value={moderatorModelId}
+            onChange={(e) => updateModeratorModelId(e.target.value)}
+            placeholder="Defaults to the panel model"
+            aria-label="Moderator model"
+            spellCheck={false}
+            className="w-full rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
+          />
+          <p className="text-xs text-[var(--text-muted)]">
+            Routes the final report (and gap detection) to a stronger model while the panel runs cheap.
+          </p>
         </section>
 
         <section className="space-y-4">
@@ -181,6 +247,14 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                 >
                   {shown[p.id] ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => testKey(p.id)}
+                  disabled={tests[p.id]?.status === "testing"}
+                  className="shrink-0 rounded-lg border border-[var(--border-hairline)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-1)] disabled:opacity-50"
+                >
+                  {tests[p.id]?.status === "testing" ? "Testing…" : "Test"}
+                </button>
               </div>
               <input
                 value={models[p.id] ?? ""}
@@ -198,6 +272,19 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                   </option>
                 ))}
               </datalist>
+              {tests[p.id] && tests[p.id].status !== "testing" && (
+                <p
+                  role="status"
+                  className={`flex items-center gap-1 text-xs ${
+                    tests[p.id].status === "ok"
+                      ? "text-[var(--status-good-text)]"
+                      : "text-[var(--status-critical)]"
+                  }`}
+                >
+                  {tests[p.id].status === "ok" ? <Check size={12} /> : <X size={12} />}
+                  {tests[p.id].message}
+                </p>
+              )}
             </div>
           ))}
           <button
@@ -211,35 +298,33 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         </section>
 
         <section className="space-y-2">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-medium text-[var(--text-primary)]">
-              Firebase sync <span className="font-normal text-[var(--text-muted)]">(optional)</span>
-            </h2>
-            {savedFlash === "firebase" && (
-              <span className="flex items-center gap-1 text-xs text-[var(--status-good-text)]">
-                <Check size={12} /> Saved
-              </span>
-            )}
-          </div>
-          <textarea
-            value={firebaseText}
-            onChange={(e) => updateFirebaseText(e.target.value)}
-            placeholder='Paste your firebaseConfig JSON, e.g. {"apiKey": "AIza…", …}'
-            aria-label="Firebase config JSON"
-            rows={3}
-            spellCheck={false}
-            className="w-full rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
-          />
-          {firebaseError ? (
-            <p className="text-xs text-[var(--status-critical)]" role="alert">
-              {firebaseError}
-            </p>
-          ) : (
-            <p className="text-xs text-[var(--text-muted)]">
-              Your own Firebase project — history syncs to your Firestore. Clear the field to
-              disconnect.
-            </p>
-          )}
+          <h2 className="text-sm font-medium text-[var(--text-primary)]">
+            Cloud sync <span className="font-normal text-[var(--text-muted)]">(optional)</span>
+          </h2>
+          <CloudSync history={history} onHistoryChange={onHistoryChange} />
+        </section>
+
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium text-[var(--text-primary)]">About</h2>
+          <dl className="divide-y divide-[var(--border-hairline)] rounded-lg border border-[var(--border-hairline)]">
+            {[
+              ["Version", pkg.version],
+              ["Runtime", runtimeLabel],
+              ["Next.js", pkg.dependencies.next],
+              ["Bundler", "Turbopack"],
+              ["Cache Components", "Enabled"],
+              ["Personas", `${BUILTIN_PERSONAS.length} built-in`],
+              ["Providers", `${PROVIDER_CATALOG.length}`],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
+                <dt className="text-[var(--text-secondary)]">{label}</dt>
+                <dd className="font-medium text-[var(--text-primary)]">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-xs text-[var(--text-muted)]">
+            The diagnostics that used to float in the corner during development.
+          </p>
         </section>
       </div>
     </div>

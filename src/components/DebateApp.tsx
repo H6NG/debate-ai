@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Settings as SettingsIcon, Trash2 } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Plus, Settings as SettingsIcon } from "lucide-react";
 import { SettingsView } from "@/components/SettingsView";
 import { SetupForm } from "@/components/SetupForm";
-import { CalibrationChart } from "@/components/CalibrationChart";
-import { CloudSync } from "@/components/CloudSync";
 import { DebateStage, type PersonaTurn } from "@/components/DebateStage";
 import { ForecastDistribution } from "@/components/ForecastDistribution";
+import { HistoryPanel } from "@/components/HistoryPanel";
 import { IdeaGraph } from "@/components/IdeaGraph";
 import { MeetingRoom } from "@/components/MeetingRoom";
 import { ProbabilityTracker } from "@/components/ProbabilityTracker";
@@ -34,6 +33,7 @@ import {
 import type { Challenge } from "@/lib/relationship";
 import { staleUnresolved } from "@/lib/calibration";
 import { deleteRemoteEntry, isCloudConfigured, pushHistory } from "@/lib/firebase-sync";
+import { friendlyErrorMessage } from "@/lib/friendly-errors";
 import type { DebateEvent, DebateReport, DebateRequest, Persona, TranscriptTurn, UsageInfo } from "@/lib/types";
 
 type View = "setup" | "results";
@@ -67,6 +67,26 @@ export function DebateApp() {
   const mounted = useSyncExternalStore(subscribeNoop, getClientSnapshot, getServerSnapshot);
   const [view, setView] = useState<View>("setup");
   const [showSettings, setShowSettings] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
+    () => typeof window !== "undefined" && window.localStorage.getItem("debate-ai:sidebar-collapsed") === "1"
+  );
+  const [tutorialOpen, setTutorialOpen] = useState<boolean>(
+    () =>
+      typeof window !== "undefined" && window.localStorage.getItem("debate-ai:tutorial-seen") !== "1"
+  );
+
+  function toggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem("debate-ai:sidebar-collapsed", next ? "1" : "0");
+      return next;
+    });
+  }
+
+  function dismissTutorial() {
+    window.localStorage.setItem("debate-ai:tutorial-seen", "1");
+    setTutorialOpen(false);
+  }
   const [tab, setTab] = useState<Tab>("debate");
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -187,7 +207,7 @@ export function DebateApp() {
           next.delete(event.personaId);
           return next;
         });
-        setErrorsByPersona((prev) => ({ ...prev, [event.personaId]: event.message }));
+        setErrorsByPersona((prev) => ({ ...prev, [event.personaId]: friendlyErrorMessage(event.message) }));
         break;
       case "challenge":
         setChallenges((prev) => [...prev, { round: event.round, fromId: event.fromPersonaId, toId: event.toPersonaId }]);
@@ -254,7 +274,7 @@ export function DebateApp() {
         }
         break;
       case "error":
-        setError(event.message);
+        setError(friendlyErrorMessage(event.message));
         setGeneratingReport(false);
         setActivePersonaIds(new Set());
         break;
@@ -309,7 +329,7 @@ export function DebateApp() {
       if (err instanceof DOMException && err.name === "AbortError") {
         // handled by handleStop, which generates a report from what we have
       } else {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
+        setError(friendlyErrorMessage(err));
       }
     } finally {
       setIsStreaming(false);
@@ -350,7 +370,9 @@ export function DebateApp() {
       setReport(data.report);
       setTab("report");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not generate a report from the partial debate.");
+      setError(
+        err instanceof Error ? friendlyErrorMessage(err) : "Could not generate a report from the partial debate."
+      );
     } finally {
       setGeneratingReport(false);
     }
@@ -407,7 +429,7 @@ export function DebateApp() {
       }
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
+        setError(friendlyErrorMessage(err));
       }
     } finally {
       setIsStreaming(false);
@@ -483,35 +505,103 @@ export function DebateApp() {
     );
   }
 
-  if (showSettings) {
-    // Full swap (not an overlay) so SetupForm remounts fresh from storage on return.
-    return <SettingsView onBack={() => setShowSettings(false)} />;
-  }
-
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-10">
-      <header className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-[var(--text-primary)]">Debate AI</h1>
-          <p className="text-sm text-[var(--text-secondary)]">
-            Ask a forecasting question, watch an AI panel debate it live, get a calibrated probability report.
-          </p>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10 lg:flex-row">
+      <aside
+        className={`order-2 w-full shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out lg:order-1 ${sidebarCollapsed ? "lg:w-16" : "lg:w-72"}`}
+      >
+        <div
+          className={`flex flex-col space-y-5 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] transition-[padding] duration-300 ease-in-out lg:sticky lg:top-10 lg:max-h-[calc(100vh-5rem)] ${sidebarCollapsed ? "p-2" : "p-4"}`}
+        >
+          {!sidebarCollapsed && (
+            <div className="animate-sidebar-in">
+              <h1 className="text-xl font-semibold text-[var(--text-primary)]">Debate AI</h1>
+              <p className="text-sm text-[var(--text-secondary)]">Ask the future. Argue about it.</p>
+            </div>
+          )}
+          <div className={`flex gap-2 ${sidebarCollapsed ? "flex-col items-center" : "items-center"}`}>
+            {sidebarCollapsed ? (
+              <button
+                type="button"
+                onClick={handleReset}
+                aria-label="New debate"
+                title="New debate"
+                className="rounded-md bg-[var(--accent-fill)] p-2 text-white"
+              >
+                <Plus size={15} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleReset}
+                className="flex-1 rounded-md bg-[var(--accent-fill)] px-3 py-2 text-center text-sm font-medium whitespace-nowrap text-white"
+              >
+                New debate
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              aria-label="Open settings"
+              title="Settings"
+              className="rounded-md border border-[var(--border-hairline)] p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+            >
+              <SettingsIcon size={15} />
+            </button>
+            {!sidebarCollapsed && <ThemeToggle />}
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className="rounded-md border border-[var(--border-hairline)] p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+            </button>
+          </div>
+          {mounted && !sidebarCollapsed && (
+            <div className="animate-sidebar-in flex min-h-0 flex-1 flex-col">
+            <HistoryPanel
+              entries={filteredHistory}
+              allEntries={history}
+              resolvedCount={record.resolved}
+              meanBrier={record.meanBrier}
+              staleIds={staleIds}
+              query={historyQuery}
+              onQueryChange={setHistoryQuery}
+              error={historyError}
+              onExport={handleExportHistory}
+              fileInputRef={fileInputRef}
+              onImportClick={() => fileInputRef.current?.click()}
+              onImportFile={handleImportFile}
+              onOpen={openHistoryEntry}
+              onDelete={(entry) => {
+                setHistory(deleteHistoryEntry(entry.id));
+                deleteRemoteEntry(entry.id).catch(() => {});
+              }}
+            />
+            </div>
+          )}
+          {!sidebarCollapsed && (
+            <button
+              type="button"
+              onClick={() => setTutorialOpen(true)}
+              className="animate-sidebar-in text-left text-xs text-[var(--text-muted)] underline hover:text-[var(--text-secondary)]"
+            >
+              Replay tutorial
+            </button>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowSettings(true)}
-            aria-label="Open settings"
-            title="Settings"
-            className="rounded-md border border-[var(--border-hairline)] p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
-          >
-            <SettingsIcon size={15} />
-          </button>
-          <ThemeToggle />
-        </div>
-      </header>
+      </aside>
 
-      {view === "setup" ? (
+      <main className="order-1 min-w-0 flex-1 lg:order-2">
+      {showSettings ? (
+        <SettingsView
+          onBack={() => setShowSettings(false)}
+          history={history}
+          onHistoryChange={setHistory}
+        />
+      ) : view === "setup" ? (
         mounted ? (
           <div className="space-y-8">
             <button
@@ -521,112 +611,7 @@ export function DebateApp() {
             >
               Try a sample debate — no API key needed
             </button>
-            <SetupForm onStart={handleStart} />
-            <CloudSync history={history} onHistoryChange={setHistory} />
-            {history.length > 0 && (
-              <section className="space-y-3">
-                <div className="flex items-baseline justify-between">
-                  <h2 className="text-sm font-medium text-[var(--text-primary)]">Past reports</h2>
-                  {record.resolved > 0 && record.meanBrier !== null && (
-                    <span className="text-xs text-[var(--text-muted)]">
-                      Track record: {record.resolved} resolved · mean Brier {record.meanBrier.toFixed(2)} (0 is
-                      perfect)
-                    </span>
-                  )}
-                </div>
-                {staleIds.size > 0 && (
-                  <p className="text-xs text-[var(--text-secondary)]">
-                    {staleIds.size} forecast{staleIds.size === 1 ? " is" : "s are"} older than 2 weeks and still
-                    unresolved — open {staleIds.size === 1 ? "it" : "them"} to record the outcome.
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  <input
-                    value={historyQuery}
-                    onChange={(e) => setHistoryQuery(e.target.value)}
-                    placeholder="Search past reports…"
-                    aria-label="Search past reports"
-                    className="min-w-0 flex-1 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleExportHistory}
-                    className="shrink-0 rounded-lg border border-[var(--border-hairline)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
-                  >
-                    Export
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="shrink-0 rounded-lg border border-[var(--border-hairline)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
-                  >
-                    Import
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/json,.json"
-                    onChange={handleImportFile}
-                    className="hidden"
-                    aria-hidden
-                    tabIndex={-1}
-                  />
-                </div>
-                {historyError && (
-                  <p className="text-xs text-[var(--status-critical)]" role="alert">
-                    {historyError}
-                  </p>
-                )}
-                <ul className="space-y-2">
-                  {filteredHistory.map((entry) => (
-                    <li
-                      key={entry.id}
-                      className="flex items-center gap-2 rounded-lg border border-[var(--border-hairline)] px-3 py-2.5"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => openHistoryEntry(entry)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <span className="block truncate text-sm font-medium text-[var(--text-primary)]">
-                          {entry.question}
-                        </span>
-                        <span className="block text-xs text-[var(--text-muted)]">
-                          {new Date(entry.savedAt).toLocaleDateString()} · {Math.round(entry.probability)}% ·{" "}
-                          {entry.provider}
-                          {entry.usage && entry.usage.inputTokens + entry.usage.outputTokens > 0
-                            ? ` · ${formatTokens(entry.usage.inputTokens + entry.usage.outputTokens)} tok`
-                            : ""}
-                          {entry.resolution
-                            ? ` · Resolved ${entry.resolution.outcome === "yes" ? "Yes" : "No"} · Brier ${brierScore(entry.probability, entry.resolution.outcome).toFixed(2)}`
-                            : ""}
-                        </span>
-                      </button>
-                      {staleIds.has(entry.id) && (
-                        <span className="shrink-0 rounded-sm border border-[var(--accent-fill)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-fill)]">
-                          Due
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setHistory(deleteHistoryEntry(entry.id));
-                          deleteRemoteEntry(entry.id).catch(() => {});
-                        }}
-                        aria-label={`Delete report: ${entry.question}`}
-                        className="shrink-0 rounded-md p-1.5 text-[var(--text-muted)] hover:bg-[var(--surface-1)] hover:text-[var(--text-primary)]"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                {filteredHistory.length === 0 && (
-                  <p className="text-xs text-[var(--text-muted)]">No past reports match that search.</p>
-                )}
-                <CalibrationChart entries={history} />
-              </section>
-            )}
+            <SetupForm onStart={handleStart} onOpenSettings={() => setShowSettings(true)} />
           </div>
         ) : null
       ) : (
@@ -856,6 +841,67 @@ export function DebateApp() {
               this run
             </p>
           )}
+        </div>
+      )}
+      </main>
+
+      {mounted && tutorialOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Welcome to Debate AI"
+        >
+          <div className="w-full max-w-md rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] p-6 shadow-2xl">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Welcome to Debate AI</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">Four steps to your first forecast:</p>
+            <ol className="mt-4 space-y-3 text-sm text-[var(--text-secondary)]">
+              <li>
+                <span className="font-medium text-[var(--text-primary)]">1. Add a key.</span> Paste a
+                provider API key in Settings (gear icon, left) — or skip this entirely and try the
+                sample debate, no key needed.
+              </li>
+              <li>
+                <span className="font-medium text-[var(--text-primary)]">2. Ask.</span> Frame a yes/no
+                question with a deadline, e.g. &ldquo;Will X happen before 2028?&rdquo;
+              </li>
+              <li>
+                <span className="font-medium text-[var(--text-primary)]">3. Pick a panel.</span> Choose
+                personas yourself, or let AI pick and draft specialists for your question.
+              </li>
+              <li>
+                <span className="font-medium text-[var(--text-primary)]">4. Watch, then resolve.</span>{" "}
+                Follow the live debate and the final probability — when the outcome is known, resolve
+                it from Past reports to build your calibration track record.
+              </li>
+            </ol>
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  dismissTutorial();
+                  loadSample();
+                }}
+                className="rounded-md bg-[var(--accent-fill)] px-3.5 py-2 text-sm font-medium text-white"
+              >
+                Try the sample debate
+              </button>
+              <button
+                type="button"
+                onClick={dismissTutorial}
+                className="rounded-md border border-[var(--border-hairline)] px-3.5 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+              >
+                Get started
+              </button>
+              <button
+                type="button"
+                onClick={dismissTutorial}
+                className="ml-auto text-xs text-[var(--text-muted)] underline hover:text-[var(--text-secondary)]"
+              >
+                Skip tutorial
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

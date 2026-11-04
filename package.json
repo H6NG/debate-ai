@@ -1,6 +1,6 @@
 {
   "name": "debate-ai",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -32,7 +32,14 @@
       "target": [
         "dmg"
       ]
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "H6NG",
+        "repo": "debate-ai"
+      }
+    ]
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.96",
@@ -42,6 +49,7 @@
     "@ai-sdk/openai-compatible": "^3.0.84",
     "@ai-sdk/perplexity": "^5.0.26",
     "ai": "^7.0.162",
+    "electron-updater": "^6.8.11",
     "firebase": "^13.2.0",
     "lucide-react": "^1.67.0",
     "next": "16.4.5",

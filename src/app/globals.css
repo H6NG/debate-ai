@@ -100,3 +100,32 @@ body {
   outline: 2px solid var(--accent-fill);
   outline-offset: 2px;
 }
+
+/* Sidebar content settles in when the rail unrolls. */
+@keyframes sidebar-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-sidebar-in {
+  animation: sidebar-fade-in 0.28s ease-out both;
+}
+
+/* Affordance cursors: clickable things look clickable, disabled things don't. */
+button:not(:disabled),
+select:not(:disabled),
+a[href],
+label[for],
+summary {
+  cursor: pointer;
+}
+button:disabled,
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+}

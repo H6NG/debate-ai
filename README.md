@@ -10,9 +10,10 @@ back a report with the strongest pros/cons and a calibrated probability estimate
    field. New here? Hit "Try a sample debate" first: a canned question,
    transcript, and report load fully offline with no API key, so you can
    explore the Meeting tab, graphs, and report before setting anything up
-   (the sample never touches your history). A 3-step guide (1. Key,
-   2. Question, 3. Panel) walks first-timers through setup; "Skip guide"
-   dismisses it.
+   (the sample never touches your history). A first-run tutorial (skippable,
+   replayable from the sidebar) and a 2-step guide (1. Question, 2. Panel)
+   walk first-timers through; provider keys and models live in Settings
+   (sidebar gear icon).
 2. You pick a model provider and paste in your own API key, and pick a model.
 3. You pick as many of the 20 built-in personas as you want (minimum 2), add
    your own custom ones, let the AI pick the panel from the built-ins, or draft
@@ -128,8 +129,13 @@ machine.
 One-line download (once a release is published):
 
 ```bash
-curl -sSL -o ~/Downloads/DebateAI.dmg https://github.com/H6NG/debate-ai/releases/latest/download/DebateAI.dmg && open ~/Downloads/DebateAI.dmg
+curl -sSL -o ~/Downloads/DebateAI.dmg https://github.com/H6NG/debate-ai/releases/latest/download/Debate-AI-1.1.0-arm64.dmg && open ~/Downloads/DebateAI.dmg
 ```
+
+The installed app checks GitHub Releases on launch and offers a download when
+a newer version exists (unsigned builds can't self-install on macOS). Settings
+(gear icon) also has a Test button per provider to verify an API key with one
+cheap call before a run.
 
 Dev loop for the desktop shell: run `npm run dev` in one terminal and
 `ELECTRON_DEV=1 npm run desktop:dev` in another. `npm run desktop:smoke`

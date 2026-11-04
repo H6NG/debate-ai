@@ -1,20 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ExternalLink, Globe, MessagesSquare, ShieldAlert, Users, Zap } from "lucide-react";
-import { PROVIDER_CATALOG, getProviderMeta } from "@/lib/provider-catalog";
+import { useEffect, useMemo, useState } from "react";
+import { Globe, MessagesSquare, ShieldAlert, Users, Zap } from "lucide-react";
+import { FALLBACK_SAMPLE_QUESTIONS, loadSampleQuestions, pickRandom } from "@/lib/sample-questions";
+import { getProviderMeta } from "@/lib/provider-catalog";
 import { BUILTIN_PERSONAS, makeCustomPersona } from "@/lib/personas";
 import { PersonaPicker } from "@/components/PersonaPicker";
 import type { DebateRequest, DraftedPersona, Persona, ProviderId } from "@/lib/types";
 
 const DEFAULT_PERSONA_IDS = ["optimist", "skeptic", "data-analyst", "pragmatist", "contrarian"];
 const QUICK_PERSONA_IDS = ["optimist", "skeptic", "data-analyst"];
-const SAMPLE_QUESTIONS = [
-  "Will NVIDIA maintain its AI GPU market dominance through 2030?",
-  "Will fully autonomous taxi services operate in 3+ US cities by 2028?",
-  "Will global EV sales exceed 50% of new car sales by 2030?",
-  "Will Bitcoin reach $200,000 before 2028?",
-];
+
 
 // Plain localStorage read/writes, not a parameterized-key hook: a hook whose
 // internal useState is keyed by a *changing* string (e.g. per-provider) keeps
@@ -28,21 +24,35 @@ function readStored(key: string, fallback: string): string {
 
 interface SetupFormProps {
   onStart: (request: DebateRequest) => void;
+  onOpenSettings?: () => void;
 }
 
-export function SetupForm({ onStart }: SetupFormProps) {
+export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
   const [question, setQuestion] = useState("");
-  const [providerId, setProviderId] = useState<ProviderId>(() => readStored("debate-ai:provider", "anthropic") as ProviderId);
+  const [visibleSamples, setVisibleSamples] = useState<string[]>(() =>
+    pickRandom(FALLBACK_SAMPLE_QUESTIONS, 4)
+  );
+  useEffect(() => {
+    let live = true;
+    loadSampleQuestions()
+      .then((questions) => {
+        if (live) setVisibleSamples(questions);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const [providerId] = useState<ProviderId>(() => readStored("debate-ai:provider", "anthropic") as ProviderId);
   const meta = getProviderMeta(providerId);
 
-  const [apiKey, setApiKeyState] = useState(() => readStored(`debate-ai:apiKey:${providerId}`, ""));
+  const [apiKey] = useState(() => readStored(`debate-ai:apiKey:${providerId}`, ""));
   const [modelId, setModelIdState] = useState(() => readStored(`debate-ai:modelId:${providerId}`, meta.models[0].id));
   const [rounds, setRounds] = useState(2);
   const [enableWebSearch, setEnableWebSearch] = useState(false);
   const [crossExamine, setCrossExamine] = useState(false);
   const [redTeam, setRedTeam] = useState(false);
   const [autonomousResearch, setAutonomousResearch] = useState(false);
-  const [moderatorModelId, setModeratorModelId] = useState("");
   const [guided, setGuided] = useState(
     () => typeof window !== "undefined" && window.localStorage.getItem("debate-ai:guided-seen") !== "1"
   );
@@ -62,12 +72,13 @@ export function SetupForm({ onStart }: SetupFormProps) {
     [question, apiKey, modelId, personas]
   );
   const canDraft = question.trim().length >= 10 && apiKey.trim().length > 0 && modelId.trim().length > 0;
-  const stepValid =
-    step === 1
-      ? apiKey.trim().length > 0 && modelId.trim().length > 0
-      : step === 2
-        ? question.trim().length >= 10
-        : personas.length >= 2;
+  const stepValid = step === 1 ? question.trim().length >= 10 : personas.length >= 2;
+  // Plain-language reasons the Start button is disabled, so it never looks dead.
+  const startBlockers: string[] = [];
+  if (apiKey.trim().length === 0) startBlockers.push("add your API key in Settings");
+  if (modelId.trim().length === 0) startBlockers.push("pick a model in Settings");
+  if (question.trim().length < 10) startBlockers.push("write a question (10+ characters)");
+  if (personas.length < 2) startBlockers.push("pick at least 2 personas");
 
   const [drafts, setDrafts] = useState<DraftedPersona[]>([]);
   const [draftSelected, setDraftSelected] = useState<Set<number>>(new Set());
@@ -149,22 +160,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
     setDraftSelected(new Set());
   }
 
-  function setApiKey(next: string) {
-    setApiKeyState(next);
-    window.localStorage.setItem(`debate-ai:apiKey:${providerId}`, next);
-  }
-
   function setModelId(next: string) {
     setModelIdState(next);
     window.localStorage.setItem(`debate-ai:modelId:${providerId}`, next);
-  }
-
-  function handleProviderChange(next: ProviderId) {
-    window.localStorage.setItem("debate-ai:provider", next);
-    setProviderId(next);
-    const nextMeta = getProviderMeta(next);
-    setModelIdState(readStored(`debate-ai:modelId:${next}`, nextMeta.models[0].id));
-    setApiKeyState(readStored(`debate-ai:apiKey:${next}`, ""));
   }
 
   function applyQuickMode() {
@@ -192,7 +190,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
       crossExamine,
       redTeam,
       autonomousResearch,
-      ...(moderatorModelId.trim().length > 0 ? { moderatorModelId: moderatorModelId.trim() } : {}),
+      ...(readStored("debate-ai:moderatorModelId", "").trim().length > 0
+        ? { moderatorModelId: readStored("debate-ai:moderatorModelId", "").trim() }
+        : {}),
     });
   }
 
@@ -201,14 +201,30 @@ export function SetupForm({ onStart }: SetupFormProps) {
       {guided && (
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-[var(--text-primary)]">
-            Step {step} of 3: {step === 1 ? "Connect your key" : step === 2 ? "Ask a question" : "Pick a panel"}
+            Step {step} of 2: {step === 1 ? "Ask a question" : "Pick a panel"}
           </p>
           <button type="button" onClick={skipGuide} className="text-xs text-[var(--accent-fill)]">
             Skip guide
           </button>
         </div>
       )}
-      {show(2) && (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-muted)]" role="status">
+        <span>
+          Using <span className="font-medium text-[var(--text-secondary)]">{meta.label}</span>
+          <span className="font-mono"> · {modelId || "no model picked"}</span>
+          {apiKey.trim().length === 0 && <span> · no API key yet</span>}
+        </span>
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="font-medium text-[var(--accent-fill)] hover:underline"
+          >
+            Change in Settings
+          </button>
+        )}
+      </div>
+      {show(1) && (
       <div className="space-y-2">
         <label htmlFor="question" className="text-sm font-medium text-[var(--text-primary)]">
           Question to debate
@@ -224,7 +240,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
         />
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-[var(--text-muted)]">Try:</span>
-          {SAMPLE_QUESTIONS.map((q) => (
+          {visibleSamples.map((q) => (
             <button
               key={q}
               type="button"
@@ -238,98 +254,6 @@ export function SetupForm({ onStart }: SetupFormProps) {
         </div>
         <p className="text-xs text-[var(--text-muted)]">
           Frame it as a yes/no forecasting question for the clearest probability estimate.
-        </p>
-      </div>
-      )}
-
-      {show(1) && (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-[var(--text-primary)]">Model provider</label>
-          <select
-            value={providerId}
-            onChange={(e) => handleProviderChange(e.target.value as ProviderId)}
-            className="w-full rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
-          >
-            {PROVIDER_CATALOG.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-[var(--text-primary)]">Model</label>
-          <input
-            value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
-            placeholder="Model ID"
-            className="w-full rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
-          />
-          <div className="flex flex-wrap gap-1.5">
-            {meta.models.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setModelId(m.id)}
-                className={`rounded-full border px-2.5 py-1 text-xs ${
-                  modelId === m.id
-                    ? "border-[var(--accent-fill)] text-[var(--accent-fill)]"
-                    : "border-[var(--border-hairline)] text-[var(--text-secondary)]"
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-      )}
-
-      {!guided && (
-      <div className="space-y-2">
-        <label htmlFor="moderatorModel" className="text-sm font-medium text-[var(--text-primary)]">
-          Moderator model <span className="font-normal text-[var(--text-muted)]">(optional)</span>
-        </label>
-        <input
-          id="moderatorModel"
-          value={moderatorModelId}
-          onChange={(e) => setModeratorModelId(e.target.value)}
-          placeholder={`Defaults to panel model (${modelId || "…"})`}
-          className="w-full rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
-        />
-        <p className="text-xs text-[var(--text-muted)]">
-          Routes the final report (and gap detection) to a stronger model while the panel runs cheap.
-        </p>
-      </div>
-      )}
-
-      {show(1) && (
-      <div className="space-y-2">
-        <label htmlFor="apiKey" className="text-sm font-medium text-[var(--text-primary)]">
-          {meta.label} API key
-        </label>
-        <input
-          id="apiKey"
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={meta.keyPlaceholder}
-          autoComplete="off"
-          className="w-full rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2.5 font-mono text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
-        />
-        <p className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-          Stored only in your browser and sent only to this app&apos;s server to call {meta.label}. Never logged or stored
-          server-side.
-          <a
-            href={meta.helpUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-0.5 text-[var(--accent-fill)]"
-          >
-            Get a key <ExternalLink size={11} />
-          </a>
         </p>
       </div>
       )}
@@ -357,6 +281,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
       </div>
 
       <div className="space-y-2">
+        <span className="text-sm font-medium text-[var(--text-primary)]">Extra rounds & presets</span>
         <button
           type="button"
           onClick={() => setCrossExamine((v) => !v)}
@@ -376,9 +301,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
             </span>
           </span>
         </button>
-      </div>
 
-      <div className="space-y-2">
         <button
           type="button"
           onClick={() => setRedTeam((v) => !v)}
@@ -396,9 +319,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
             </span>
           </span>
         </button>
-      </div>
 
-      <div className="space-y-2">
         <button
           type="button"
           onClick={() => setAutonomousResearch((v) => !v)}
@@ -420,9 +341,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
             </span>
           </span>
         </button>
-      </div>
 
-      <div className="space-y-2">
         <button
           type="button"
           onClick={applyQuickMode}
@@ -474,7 +393,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
       </>
       )}
 
-      {show(3) && (
+      {show(2) && (
       <div className="space-y-2">
         <button
           type="button"
@@ -548,7 +467,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
       </div>
       )}
 
-      {show(3) && (
+      {show(2) && (
       <PersonaPicker
         selected={personas}
         onChange={setPersonas}
@@ -574,6 +493,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
       </p>
 
       {guided ? (
+        <>
         <div className="flex gap-2">
           {step > 1 && (
             <button
@@ -584,7 +504,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
               Back
             </button>
           )}
-          {step < 3 ? (
+          {step < 2 ? (
             <button
               type="button"
               onClick={() => setStep(step + 1)}
@@ -603,6 +523,10 @@ export function SetupForm({ onStart }: SetupFormProps) {
             </button>
           )}
         </div>
+        {step === 1 && !stepValid && (
+          <p className="text-xs text-[var(--text-muted)]">Write a question (10+ characters) to continue.</p>
+        )}
+        </>
       ) : (
         <button
           type="submit"
@@ -611,6 +535,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
         >
           Start debate
         </button>
+      )}
+      {!canStart && startBlockers.length > 0 && (
+        <p className="-mt-3 text-xs text-[var(--text-muted)]">To start: {startBlockers.join(" · ")}.</p>
       )}
     </form>
   );

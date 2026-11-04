@@ -52,7 +52,39 @@ if (!process.versions.electron || isSmokerun) {
   return;
 }
 
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, shell } = require("electron");
+
+// Update check against GitHub Releases. Unsigned builds can't self-install on
+// macOS (Squirrel.Mac requires a signature), so notify and link to the download.
+function setupUpdates() {
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require("electron-updater"));
+  } catch (err) {
+    console.error("updater unavailable", err);
+    return;
+  }
+  autoUpdater.autoDownload = false;
+  autoUpdater.on("update-available", (info) => {
+    dialog
+      .showMessageBox({
+        type: "info",
+        title: "Update available",
+        message: `Debate AI v${info.version} is available (you have v${app.getVersion()}).`,
+        buttons: ["Download", "Later"],
+        defaultId: 0,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          shell.openExternal("https://github.com/H6NG/debate-ai/releases/latest");
+        }
+      })
+      .catch(() => {});
+  });
+  autoUpdater.checkForUpdates().catch(() => {
+    /* offline or no releases yet — stay silent */
+  });
+}
 
 function createWindow(url) {
   const win = new BrowserWindow({
@@ -86,6 +118,7 @@ app.whenReady().then(async () => {
     url = prodUrl;
   }
   createWindow(url);
+  if (!isDev) setupUpdates();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
