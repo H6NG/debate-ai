@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# brag launch-video output
+brag-output/
+brag-output-*/
+
+# electron-builder output
+release/

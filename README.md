@@ -6,7 +6,13 @@ back a report with the strongest pros/cons and a calibrated probability estimate
 ## How it works
 
 1. You type a question (framed as a yes/no forecast works best, e.g. "Will X
-   happen by Y?").
+   happen by Y?") — or tap one of the clickable sample questions to fill the
+   field. New here? Hit "Try a sample debate" first: a canned question,
+   transcript, and report load fully offline with no API key, so you can
+   explore the Meeting tab, graphs, and report before setting anything up
+   (the sample never touches your history). A 3-step guide (1. Key,
+   2. Question, 3. Panel) walks first-timers through setup; "Skip guide"
+   dismisses it.
 2. You pick a model provider and paste in your own API key, and pick a model.
 3. You pick as many of the 20 built-in personas as you want (minimum 2), add
    your own custom ones, let the AI pick the panel from the built-ins, or draft
@@ -103,6 +109,45 @@ No `.env` file or server-side API key is required — each person using the app
 enters their own key directly in the browser, and it's remembered in
 `localStorage` per provider so you don't have to repaste it every time.
 
+## Desktop app (macOS)
+
+The `software` branch wraps the app in Electron: a real `Debate AI.app` with
+the server built in — no Node, no terminal, no `localhost` juggling.
+
+```bash
+git checkout software
+npm install
+npm run desktop:dist   # builds Debate AI-*.dmg into release/
+```
+
+Open the `.dmg`, drag `Debate AI` to Applications, and launch it. First launch:
+right-click → Open (the build is unsigned, so Gatekeeper asks once). All API
+keys live in the in-app Settings screen (gear icon, top right) and stay on your
+machine.
+
+One-line download (once a release is published):
+
+```bash
+curl -sSL -o ~/Downloads/DebateAI.dmg https://github.com/H6NG/debate-ai/releases/latest/download/DebateAI.dmg && open ~/Downloads/DebateAI.dmg
+```
+
+Dev loop for the desktop shell: run `npm run dev` in one terminal and
+`ELECTRON_DEV=1 npm run desktop:dev` in another. `npm run desktop:smoke`
+checks the production server path without opening a window.
+
+## Windows (localhost)
+
+No installer yet — run it in the browser instead:
+
+```bash
+npm install
+npm run build
+npm start
+```
+
+Then open http://localhost:3000 in Edge or Chrome. (`npm run dev` works too
+for a live-reload dev session.) Keys go in the Settings screen, same as Mac.
+
 ## Privacy / API keys
 
 Your API key is stored only in your browser's `localStorage` (scoped per
@@ -135,5 +180,19 @@ integrated into the app — every user brings their own.
 - `src/app/api/pick-personas/route.ts` — picks the best built-in personas for
   the debate question.
 - `src/components/` — the UI: setup form, persona picker, live debate stage,
-  meeting-room view, relationship graph, probability tracker, idea graph,
+  meeting-room view, relationship graph, probability tracker, forecast
+  distribution, idea graph, calibration chart, cloud sync, theme toggle,
   and the final report card.
+- `src/lib/probability.ts`, `src/lib/relationship.ts`, `src/lib/calibration.ts`
+  — distribution stats (mean/median/trimmed mean/spread), agent-relation
+  extraction, and Brier scoring + calibration buckets.
+- `src/lib/structured.ts` — robust structured-output parsing with a plain-text
+  JSON fallback for providers without JSON schema support.
+- `src/lib/share.ts`, `src/lib/history.ts` — share-link encoding plus
+  browser-local report history + markdown export.
+- `src/lib/firebase-sync.ts` — optional bring-your-own-Firebase sync to the
+  user's own Firestore project (anonymous sign-in, local history stays the
+  source of truth).
+- `src/lib/sample-debate.ts` — the canned offline sample debate (never saved
+  to history).
+- `src/lib/ndjson.ts` — streaming NDJSON helpers shared by the API routes.

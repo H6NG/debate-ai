@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Trash2 } from "lucide-react";
+import { Settings as SettingsIcon, Trash2 } from "lucide-react";
+import { SettingsView } from "@/components/SettingsView";
 import { SetupForm } from "@/components/SetupForm";
 import { CalibrationChart } from "@/components/CalibrationChart";
 import { CloudSync } from "@/components/CloudSync";
@@ -14,6 +15,7 @@ import { RelationshipGraph } from "@/components/RelationshipGraph";
 import { ReportCard } from "@/components/ReportCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { decodeShare } from "@/lib/share";
+import { getSampleDebate } from "@/lib/sample-debate";
 import { readNdjsonStream } from "@/lib/ndjson";
 import { getProviderMeta } from "@/lib/provider-catalog";
 import {
@@ -64,6 +66,7 @@ function buildTranscript(personas: Persona[], turnsByPersona: Record<string, Per
 export function DebateApp() {
   const mounted = useSyncExternalStore(subscribeNoop, getClientSnapshot, getServerSnapshot);
   const [view, setView] = useState<View>("setup");
+  const [showSettings, setShowSettings] = useState(false);
   const [tab, setTab] = useState<Tab>("debate");
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -82,6 +85,31 @@ export function DebateApp() {
   const [report, setReport] = useState<DebateReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
+  const [demoMode, setDemoMode] = useState(false);
+
+  function loadSample() {
+    const sample = getSampleDebate();
+    requestRef.current = null;
+    setQuestion(sample.question);
+    setPersonas(sample.personas);
+    setTurnsByPersona(sample.turnsByPersona);
+    setChallenges(sample.challenges);
+    setCurrentRound(sample.totalRounds);
+    setTotalRounds(sample.totalRounds);
+    setActivePersonaIds(new Set());
+    setErrorsByPersona({});
+    setResearchGaps([]);
+    setUsageTotals({ inputTokens: 0, outputTokens: 0 });
+    setReport(sample.report);
+    setRunMeta({ providerLabel: sample.providerLabel, modelId: sample.modelId });
+    setError(null);
+    setIsStreaming(false);
+    setGeneratingReport(false);
+    setHistoryView(null);
+    setDemoMode(true);
+    setTab("debate");
+    setView("results");
+  }
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [dismissedShare, setDismissedShare] = useState(false);
@@ -238,6 +266,7 @@ export function DebateApp() {
   async function handleStart(request: DebateRequest) {
     setView("results");
     setTab("debate");
+    setDemoMode(false);
     setHistoryView(null);
     setRunMeta(null);
     setIsStreaming(true);
@@ -330,6 +359,7 @@ export function DebateApp() {
   function handleReset() {
     setView("setup");
     setHistoryView(null);
+    setDemoMode(false);
   }
 
   async function handleFollowUp(e: React.FormEvent) {
@@ -453,6 +483,11 @@ export function DebateApp() {
     );
   }
 
+  if (showSettings) {
+    // Full swap (not an overlay) so SetupForm remounts fresh from storage on return.
+    return <SettingsView onBack={() => setShowSettings(false)} />;
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10">
       <header className="mb-8 flex items-start justify-between gap-4">
@@ -462,12 +497,30 @@ export function DebateApp() {
             Ask a forecasting question, watch an AI panel debate it live, get a calibrated probability report.
           </p>
         </div>
-        <ThemeToggle />
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            aria-label="Open settings"
+            title="Settings"
+            className="rounded-md border border-[var(--border-hairline)] p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+          >
+            <SettingsIcon size={15} />
+          </button>
+          <ThemeToggle />
+        </div>
       </header>
 
       {view === "setup" ? (
         mounted ? (
           <div className="space-y-8">
+            <button
+              type="button"
+              onClick={loadSample}
+              className="w-full rounded-lg border border-dashed border-[var(--accent-fill)] px-3 py-2.5 text-sm font-medium text-[var(--accent-fill)] hover:bg-[var(--accent-track)]/10"
+            >
+              Try a sample debate — no API key needed
+            </button>
             <SetupForm onStart={handleStart} />
             <CloudSync history={history} onHistoryChange={setHistory} />
             {history.length > 0 && (
@@ -636,6 +689,15 @@ export function DebateApp() {
             </div>
           )}
 
+          {demoMode && (
+            <p className="rounded-lg border border-[var(--accent-fill)] bg-[var(--accent-track)]/10 px-3.5 py-2.5 text-xs text-[var(--text-secondary)]">
+              Sample debate with canned results.{" "}
+              <button type="button" onClick={handleReset} className="font-medium text-[var(--accent-fill)]">
+                Start your own with an API key
+              </button>
+            </p>
+          )}
+
           {failedNames.length > 0 && (
             <p className="rounded-lg border border-[var(--border-hairline)] px-3.5 py-2.5 text-xs text-[var(--text-secondary)]">
               {failedNames.join(", ")} couldn&apos;t respond after retries — the debate continued without them and
@@ -762,7 +824,7 @@ export function DebateApp() {
             </>
           ) : null}
 
-          {shownReport && !busy && !historyView && tab === "report" && (
+          {shownReport && !busy && !historyView && !demoMode && tab === "report" && (
             <form onSubmit={handleFollowUp} className="flex gap-2">
               <input
                 value={followUp}

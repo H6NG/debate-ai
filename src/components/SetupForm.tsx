@@ -9,6 +9,12 @@ import type { DebateRequest, DraftedPersona, Persona, ProviderId } from "@/lib/t
 
 const DEFAULT_PERSONA_IDS = ["optimist", "skeptic", "data-analyst", "pragmatist", "contrarian"];
 const QUICK_PERSONA_IDS = ["optimist", "skeptic", "data-analyst"];
+const SAMPLE_QUESTIONS = [
+  "Will NVIDIA maintain its AI GPU market dominance through 2030?",
+  "Will fully autonomous taxi services operate in 3+ US cities by 2028?",
+  "Will global EV sales exceed 50% of new car sales by 2030?",
+  "Will Bitcoin reach $200,000 before 2028?",
+];
 
 // Plain localStorage read/writes, not a parameterized-key hook: a hook whose
 // internal useState is keyed by a *changing* string (e.g. per-provider) keeps
@@ -37,6 +43,16 @@ export function SetupForm({ onStart }: SetupFormProps) {
   const [redTeam, setRedTeam] = useState(false);
   const [autonomousResearch, setAutonomousResearch] = useState(false);
   const [moderatorModelId, setModeratorModelId] = useState("");
+  const [guided, setGuided] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem("debate-ai:guided-seen") !== "1"
+  );
+  const [step, setStep] = useState(1);
+  const show = (n: number) => !guided || step === n;
+
+  function skipGuide() {
+    window.localStorage.setItem("debate-ai:guided-seen", "1");
+    setGuided(false);
+  }
   const [personas, setPersonas] = useState<Persona[]>(() =>
     BUILTIN_PERSONAS.filter((p) => DEFAULT_PERSONA_IDS.includes(p.id))
   );
@@ -46,6 +62,12 @@ export function SetupForm({ onStart }: SetupFormProps) {
     [question, apiKey, modelId, personas]
   );
   const canDraft = question.trim().length >= 10 && apiKey.trim().length > 0 && modelId.trim().length > 0;
+  const stepValid =
+    step === 1
+      ? apiKey.trim().length > 0 && modelId.trim().length > 0
+      : step === 2
+        ? question.trim().length >= 10
+        : personas.length >= 2;
 
   const [drafts, setDrafts] = useState<DraftedPersona[]>([]);
   const [draftSelected, setDraftSelected] = useState<Set<number>>(new Set());
@@ -156,6 +178,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
   }
 
   function handleSubmit(e: React.FormEvent) {
+    window.localStorage.setItem("debate-ai:guided-seen", "1");
     e.preventDefault();
     if (!canStart) return;
     onStart({
@@ -175,6 +198,17 @@ export function SetupForm({ onStart }: SetupFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {guided && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-[var(--text-primary)]">
+            Step {step} of 3: {step === 1 ? "Connect your key" : step === 2 ? "Ask a question" : "Pick a panel"}
+          </p>
+          <button type="button" onClick={skipGuide} className="text-xs text-[var(--accent-fill)]">
+            Skip guide
+          </button>
+        </div>
+      )}
+      {show(2) && (
       <div className="space-y-2">
         <label htmlFor="question" className="text-sm font-medium text-[var(--text-primary)]">
           Question to debate
@@ -188,11 +222,27 @@ export function SetupForm({ onStart }: SetupFormProps) {
           maxLength={500}
           className="w-full resize-none rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
         />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-[var(--text-muted)]">Try:</span>
+          {SAMPLE_QUESTIONS.map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => setQuestion(q)}
+              className="max-w-full truncate rounded-full border border-[var(--border-hairline)] px-2.5 py-1 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+              title={q}
+            >
+              {q.length > 44 ? `${q.slice(0, 44).trimEnd()}…` : q}
+            </button>
+          ))}
+        </div>
         <p className="text-xs text-[var(--text-muted)]">
           Frame it as a yes/no forecasting question for the clearest probability estimate.
         </p>
       </div>
+      )}
 
+      {show(1) && (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <label className="text-sm font-medium text-[var(--text-primary)]">Model provider</label>
@@ -235,7 +285,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
           </div>
         </div>
       </div>
+      )}
 
+      {!guided && (
       <div className="space-y-2">
         <label htmlFor="moderatorModel" className="text-sm font-medium text-[var(--text-primary)]">
           Moderator model <span className="font-normal text-[var(--text-muted)]">(optional)</span>
@@ -251,7 +303,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
           Routes the final report (and gap detection) to a stronger model while the panel runs cheap.
         </p>
       </div>
+      )}
 
+      {show(1) && (
       <div className="space-y-2">
         <label htmlFor="apiKey" className="text-sm font-medium text-[var(--text-primary)]">
           {meta.label} API key
@@ -278,7 +332,10 @@ export function SetupForm({ onStart }: SetupFormProps) {
           </a>
         </p>
       </div>
+      )}
 
+      {!guided && (
+      <>
       <div className="space-y-2">
         <label className="text-sm font-medium text-[var(--text-primary)]">Rounds</label>
         <div className="flex gap-1.5">
@@ -414,7 +471,10 @@ export function SetupForm({ onStart }: SetupFormProps) {
           </div>
         )}
       </div>
+      </>
+      )}
 
+      {show(3) && (
       <div className="space-y-2">
         <button
           type="button"
@@ -486,7 +546,9 @@ export function SetupForm({ onStart }: SetupFormProps) {
           </div>
         )}
       </div>
+      )}
 
+      {show(3) && (
       <PersonaPicker
         selected={personas}
         onChange={setPersonas}
@@ -494,6 +556,7 @@ export function SetupForm({ onStart }: SetupFormProps) {
         aiPicking={aiPicking}
         aiPickDisabled={!canDraft}
       />
+      )}
 
       <p className="text-center text-xs text-[var(--text-muted)]">
         ~
@@ -510,13 +573,45 @@ export function SetupForm({ onStart }: SetupFormProps) {
         also trip a provider&apos;s rate limit.
       </p>
 
-      <button
-        type="submit"
-        disabled={!canStart}
-        className="w-full rounded-lg bg-[var(--accent-fill)] px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
-      >
-        Start debate
-      </button>
+      {guided ? (
+        <div className="flex gap-2">
+          {step > 1 && (
+            <button
+              type="button"
+              onClick={() => setStep(step - 1)}
+              className="rounded-lg border border-[var(--border-hairline)] px-4 py-3 text-sm font-medium text-[var(--text-secondary)]"
+            >
+              Back
+            </button>
+          )}
+          {step < 3 ? (
+            <button
+              type="button"
+              onClick={() => setStep(step + 1)}
+              disabled={!stepValid}
+              className="flex-1 rounded-lg bg-[var(--accent-fill)] px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
+            >
+              Continue
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!canStart}
+              className="flex-1 rounded-lg bg-[var(--accent-fill)] px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
+            >
+              Start debate
+            </button>
+          )}
+        </div>
+      ) : (
+        <button
+          type="submit"
+          disabled={!canStart}
+          className="w-full rounded-lg bg-[var(--accent-fill)] px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
+        >
+          Start debate
+        </button>
+      )}
     </form>
   );
 }

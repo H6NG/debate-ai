@@ -2,11 +2,37 @@
   "name": "debate-ai",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "desktop:dev": "electron .",
+    "desktop:smoke": "node electron/main.js --smoke",
+    "desktop:dist": "next build && electron-builder --mac"
+  },
+  "build": {
+    "appId": "ai.debate.app",
+    "productName": "Debate AI",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      ".next/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      ".next/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ]
+    }
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.96",
@@ -28,6 +54,8 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^45.2.2",
+    "electron-builder": "^26.18.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
     "tailwindcss": "^4",
