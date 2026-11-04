@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Committed build artifacts (dmg bundle, launch-video work files).
+    "release/**",
+    "brag-output/**",
   ]),
   // Electron main/preload run in Node/Electron, not the Next.js bundler.
   {
