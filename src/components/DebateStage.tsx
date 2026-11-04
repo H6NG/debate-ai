@@ -14,6 +14,7 @@ interface DebateStageProps {
   currentRound: number;
   totalRounds: number;
   generatingReport: boolean;
+  errorsByPersona: Record<string, string>;
 }
 
 export function DebateStage({
@@ -23,6 +24,7 @@ export function DebateStage({
   currentRound,
   totalRounds,
   generatingReport,
+  errorsByPersona,
 }: DebateStageProps) {
   const gridCols = personas.length <= 2 ? "sm:grid-cols-2" : personas.length <= 4 ? "sm:grid-cols-2" : "sm:grid-cols-3";
 
@@ -34,7 +36,7 @@ export function DebateStage({
         </span>
         {generatingReport && (
           <span className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent-fill)]" />
+            <span className="h-1.5 w-1.5 motion-safe:animate-pulse rounded-full bg-[var(--accent-fill)]" />
             Generating final report&hellip;
           </span>
         )}
@@ -44,17 +46,20 @@ export function DebateStage({
         {personas.map((persona) => {
           const turns = turnsByPersona[persona.id] ?? [];
           const isActive = activePersonaIds.has(persona.id);
+          const error = errorsByPersona[persona.id];
           return (
             <div
               key={persona.id}
               className={`rounded-lg border p-3.5 transition-colors ${
-                isActive ? "border-[var(--accent-fill)]" : "border-[var(--border-hairline)]"
+                isActive
+                  ? "border-[var(--accent-fill)] bg-[var(--accent-track)]/15"
+                  : "border-[var(--border-hairline)]"
               }`}
             >
               <div className="mb-2 flex items-center gap-2">
                 <span
                   className={`h-2 w-2 shrink-0 rounded-full ${
-                    isActive ? "animate-pulse bg-[var(--accent-fill)]" : "bg-[var(--gridline)]"
+                    isActive ? "motion-safe:animate-pulse bg-[var(--accent-fill)]" : "bg-[var(--gridline)]"
                   }`}
                 />
                 <div>
@@ -75,13 +80,22 @@ export function DebateStage({
                       </div>
                     )}
                     <p className="text-sm leading-relaxed text-[var(--text-secondary)]">
-                      {turn.text}
+                      {turn.text.length === 0 && !(isActive && i === turns.length - 1) ? (
+                        <span className="text-[var(--text-muted)]">No response captured.</span>
+                      ) : (
+                        turn.text
+                      )}
                       {isActive && i === turns.length - 1 && (
-                        <span className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse bg-[var(--accent-fill)]" />
+                        <span className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 motion-safe:animate-pulse bg-[var(--accent-fill)]" />
                       )}
                     </p>
                   </div>
                 ))}
+                {error && (
+                  <p className="mt-2 text-xs text-[var(--status-critical)]" role="alert">
+                    Couldn&apos;t respond this round: {error}
+                  </p>
+                )}
               </div>
             </div>
           );

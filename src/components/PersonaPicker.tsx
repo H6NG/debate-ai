@@ -10,9 +10,12 @@ const MIN_PERSONAS = 2;
 interface PersonaPickerProps {
   selected: Persona[];
   onChange: (personas: Persona[]) => void;
+  onAiPick?: () => void;
+  aiPicking?: boolean;
+  aiPickDisabled?: boolean;
 }
 
-export function PersonaPicker({ selected, onChange }: PersonaPickerProps) {
+export function PersonaPicker({ selected, onChange, onAiPick, aiPicking, aiPickDisabled }: PersonaPickerProps) {
   const [customOpen, setCustomOpen] = useState(false);
   const [customName, setCustomName] = useState("");
   const [customLens, setCustomLens] = useState("");
@@ -43,11 +46,46 @@ export function PersonaPicker({ selected, onChange }: PersonaPickerProps) {
     setCustomOpen(false);
   }
 
+  function selectAll() {
+    onChange([...BUILTIN_PERSONAS, ...selected.filter((p) => p.custom)]);
+  }
+
+  function clearAll() {
+    onChange(selected.slice(0, MIN_PERSONAS));
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-baseline justify-between">
         <label className="text-sm font-medium text-[var(--text-primary)]">Debate panel</label>
         <span className="text-xs text-[var(--text-muted)]">{selected.length} selected &middot; minimum {MIN_PERSONAS}</span>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={selectAll}
+          className="rounded-md border border-[var(--border-hairline)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+        >
+          Select all
+        </button>
+        {onAiPick && (
+          <button
+            type="button"
+            onClick={onAiPick}
+            disabled={aiPickDisabled || aiPicking}
+            className="rounded-md border border-[var(--accent-fill)] px-2.5 py-1 text-xs font-medium text-[var(--accent-fill)] disabled:opacity-40"
+          >
+            {aiPicking ? "AI picking…" : "AI pick"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={clearAll}
+          disabled={selected.length <= MIN_PERSONAS}
+          className="rounded-md border border-[var(--border-hairline)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-1)] disabled:opacity-40"
+        >
+          Clear
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

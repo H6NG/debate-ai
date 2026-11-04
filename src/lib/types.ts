@@ -17,6 +17,7 @@ export interface ProviderMeta {
   keyPlaceholder: string;
   webSearch: WebSearchSupport;
   models: ProviderModelOption[];
+  quickModelId: string;
 }
 
 export interface Persona {
@@ -32,9 +33,18 @@ export interface DebateRequest {
   provider: ProviderId;
   apiKey: string;
   modelId: string;
+  moderatorModelId?: string;
   personas: Persona[];
   rounds: number;
   enableWebSearch: boolean;
+  crossExamine: boolean;
+  redTeam: boolean;
+  autonomousResearch: boolean;
+}
+
+export interface UsageInfo {
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export interface TranscriptTurn {
@@ -58,6 +68,20 @@ export interface DebateReport {
   probability: number;
   confidence: "low" | "medium" | "high";
   keyUncertainties: string[];
+  keyClaims: { claim: string; source: string }[];
+}
+
+export interface DraftedPersona {
+  name: string;
+  tagline: string;
+  lens: string;
+}
+
+export interface DraftPanelRequest {
+  question: string;
+  provider: ProviderId;
+  apiKey: string;
+  modelId: string;
 }
 
 export type DebateEvent =
@@ -65,6 +89,10 @@ export type DebateEvent =
   | { type: "agent_start"; personaId: string; round: number }
   | { type: "agent_delta"; personaId: string; text: string }
   | { type: "agent_end"; personaId: string; fullText: string }
+  | { type: "agent_error"; personaId: string; round: number; message: string }
+  | { type: "challenge"; round: number; fromPersonaId: string; toPersonaId: string }
+  | { type: "research_gaps"; gaps: string[] }
+  | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "round_end"; round: number }
   | { type: "report_start" }
   | { type: "report"; data: DebateReport }

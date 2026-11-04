@@ -21,6 +21,10 @@ const RequestSchema = z.object({
   personas: z.array(PersonaSchema).min(2).max(60),
   rounds: z.number().int().min(1).max(3),
   enableWebSearch: z.boolean(),
+  crossExamine: z.boolean(),
+  redTeam: z.boolean(),
+  autonomousResearch: z.boolean(),
+  moderatorModelId: z.string().min(1).max(200).optional(),
 });
 
 export async function POST(req: NextRequest) {

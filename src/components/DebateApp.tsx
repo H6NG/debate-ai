@@ -1,14 +1,41 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Trash2 } from "lucide-react";
 import { SetupForm } from "@/components/SetupForm";
+import { CalibrationChart } from "@/components/CalibrationChart";
+import { CloudSync } from "@/components/CloudSync";
 import { DebateStage, type PersonaTurn } from "@/components/DebateStage";
+import { ForecastDistribution } from "@/components/ForecastDistribution";
+import { IdeaGraph } from "@/components/IdeaGraph";
+import { MeetingRoom } from "@/components/MeetingRoom";
+import { ProbabilityTracker } from "@/components/ProbabilityTracker";
+import { RelationshipGraph } from "@/components/RelationshipGraph";
 import { ReportCard } from "@/components/ReportCard";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { decodeShare } from "@/lib/share";
 import { readNdjsonStream } from "@/lib/ndjson";
-import type { DebateEvent, DebateReport, DebateRequest, Persona, TranscriptTurn } from "@/lib/types";
+import { getProviderMeta } from "@/lib/provider-catalog";
+import {
+  brierScore,
+  deleteHistoryEntry,
+  exportHistoryJson,
+  formatTokens,
+  importHistoryJson,
+  loadHistory,
+  resolveHistoryEntry,
+  saveHistoryEntry,
+  trackRecord,
+  type ForecastOutcome,
+  type HistoryEntry,
+} from "@/lib/history";
+import type { Challenge } from "@/lib/relationship";
+import { staleUnresolved } from "@/lib/calibration";
+import { deleteRemoteEntry, isCloudConfigured, pushHistory } from "@/lib/firebase-sync";
+import type { DebateEvent, DebateReport, DebateRequest, Persona, TranscriptTurn, UsageInfo } from "@/lib/types";
 
 type View = "setup" | "results";
-type Tab = "debate" | "report";
+type Tab = "debate" | "meeting" | "report";
 
 // Used with useSyncExternalStore to detect the client-hydrated render without
 // reading localStorage during SSR (which would mismatch and break hydration).
@@ -46,9 +73,63 @@ export function DebateApp() {
   const [activePersonaIds, setActivePersonaIds] = useState<Set<string>>(new Set());
   const [currentRound, setCurrentRound] = useState(1);
   const [totalRounds, setTotalRounds] = useState(1);
+  const [errorsByPersona, setErrorsByPersona] = useState<Record<string, string>>({});
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [researchGaps, setResearchGaps] = useState<string[]>([]);
+  const [usageTotals, setUsageTotals] = useState<UsageInfo>({ inputTokens: 0, outputTokens: 0 });
+  const usageRef = useRef<UsageInfo>({ inputTokens: 0, outputTokens: 0 });
   const [generatingReport, setGeneratingReport] = useState(false);
   const [report, setReport] = useState<DebateReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [dismissedShare, setDismissedShare] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sharedView = useMemo(
+    () => (!mounted || dismissedShare ? null : decodeShare(window.location.hash)),
+    [mounted, dismissedShare]
+  );
+  const filteredHistory = history.filter((e) =>
+    e.question.toLowerCase().includes(historyQuery.trim().toLowerCase())
+  );
+
+  function dismissShare() {
+    window.history.replaceState(null, "", window.location.pathname);
+    setDismissedShare(true);
+  }
+
+  function handleExportHistory() {
+    const blob = new Blob([exportHistoryJson(history)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "debate-history.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setHistoryError(null);
+    file.text().then(
+      (text) => {
+        try {
+          setHistory(importHistoryJson(text));
+        } catch (err) {
+          setHistoryError(err instanceof Error ? err.message : "Could not import that file.");
+        }
+      },
+      () => setHistoryError("Could not read that file.")
+    );
+  }
+  const [historyView, setHistoryView] = useState<HistoryEntry | null>(null);
+  const [runMeta, setRunMeta] = useState<{ providerLabel: string; modelId: string } | null>(null);
+  const [followUp, setFollowUp] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
   const requestRef = useRef<DebateRequest | null>(null);
@@ -61,10 +142,37 @@ export function DebateApp() {
         break;
       case "agent_start":
         setActivePersonaIds((prev) => new Set(prev).add(event.personaId));
+        setErrorsByPersona((prev) => {
+          if (!(event.personaId in prev)) return prev;
+          const next = { ...prev };
+          delete next[event.personaId];
+          return next;
+        });
         setTurnsByPersona((prev) => {
           const existing = prev[event.personaId] ?? [];
           return { ...prev, [event.personaId]: [...existing, { round: event.round, text: "" }] };
         });
+        break;
+      case "agent_error":
+        setActivePersonaIds((prev) => {
+          const next = new Set(prev);
+          next.delete(event.personaId);
+          return next;
+        });
+        setErrorsByPersona((prev) => ({ ...prev, [event.personaId]: event.message }));
+        break;
+      case "challenge":
+        setChallenges((prev) => [...prev, { round: event.round, fromId: event.fromPersonaId, toId: event.toPersonaId }]);
+        break;
+      case "research_gaps":
+        setResearchGaps(event.gaps);
+        break;
+      case "usage":
+        usageRef.current = {
+          inputTokens: usageRef.current.inputTokens + event.inputTokens,
+          outputTokens: usageRef.current.outputTokens + event.outputTokens,
+        };
+        setUsageTotals({ ...usageRef.current });
         break;
       case "agent_delta":
         setTurnsByPersona((prev) => {
@@ -90,6 +198,32 @@ export function DebateApp() {
         setReport(event.data);
         setGeneratingReport(false);
         setTab("report");
+        {
+          const original = requestRef.current;
+          if (original) {
+            const meta = getProviderMeta(original.provider);
+            setRunMeta({ providerLabel: meta.label, modelId: original.modelId });
+            setHistory(
+              saveHistoryEntry({
+                question: original.question,
+                provider: meta.label,
+                modelId: original.modelId,
+                probability: event.data.probability,
+                report: event.data,
+                usage: { ...usageRef.current },
+                inputs: {
+                  personas: original.personas.map((p) => ({ id: p.id, name: p.name })),
+                  rounds: original.rounds,
+                  enableWebSearch: original.enableWebSearch,
+                  crossExamine: original.crossExamine,
+                  redTeam: original.redTeam,
+                  autonomousResearch: original.autonomousResearch,
+                  ...(original.moderatorModelId ? { moderatorModelId: original.moderatorModelId } : {}),
+                },
+              })
+            );
+          }
+        }
         break;
       case "error":
         setError(event.message);
@@ -104,6 +238,8 @@ export function DebateApp() {
   async function handleStart(request: DebateRequest) {
     setView("results");
     setTab("debate");
+    setHistoryView(null);
+    setRunMeta(null);
     setIsStreaming(true);
     setQuestion(request.question);
     setPersonas(request.personas);
@@ -114,6 +250,11 @@ export function DebateApp() {
     setGeneratingReport(false);
     setReport(null);
     setError(null);
+    setErrorsByPersona({});
+    setChallenges([]);
+    setResearchGaps([]);
+    usageRef.current = { inputTokens: 0, outputTokens: 0 };
+    setUsageTotals({ inputTokens: 0, outputTokens: 0 });
     requestRef.current = request;
 
     const controller = new AbortController();
@@ -188,36 +329,278 @@ export function DebateApp() {
 
   function handleReset() {
     setView("setup");
+    setHistoryView(null);
+  }
+
+  async function handleFollowUp(e: React.FormEvent) {
+    e.preventDefault();
+    const text = followUp.trim();
+    const original = requestRef.current;
+    if (!text || busy || historyView || !original || personas.length === 0) return;
+    const transcript = buildTranscript(personas, turnsByPersona);
+    if (transcript.length === 0) return;
+
+    setFollowUp("");
+    setError(null);
+    setTab("debate");
+    setIsStreaming(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch("/api/followup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: original.question,
+          provider: original.provider,
+          apiKey: original.apiKey,
+          modelId: original.modelId,
+          personas,
+          transcript,
+          followUp: text,
+          baseRound: totalRounds,
+          enableWebSearch: original.enableWebSearch,
+          ...(original.moderatorModelId ? { moderatorModelId: original.moderatorModelId } : {}),
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? `Request failed (${res.status})`);
+      }
+
+      for await (const raw of readNdjsonStream(res.body)) {
+        applyEvent(raw as DebateEvent);
+      }
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setError(err instanceof Error ? err.message : "Something went wrong.");
+      }
+    } finally {
+      setIsStreaming(false);
+    }
+  }
+
+  function openHistoryEntry(entry: HistoryEntry) {
+    setHistoryView(entry);
+    setView("results");
+    setTab("report");
+    setError(null);
+  }
+
+  function handleResolve(outcome: ForecastOutcome) {
+    if (!historyView) return;
+    const entries = resolveHistoryEntry(historyView.id, outcome);
+    setHistory(entries);
+    setHistoryView(entries.find((e) => e.id === historyView.id) ?? null);
   }
 
   const busy = isStreaming || generatingReport;
+  const failedNames = personas
+    .filter((p) => errorsByPersona[p.id])
+    .map((p) => p.name);
+  const shownQuestion = historyView?.question ?? question;
+  const shownReport = historyView?.report ?? report;
+  const shownMeta = historyView
+    ? { providerLabel: historyView.provider, modelId: historyView.modelId }
+    : runMeta;
+  const record = trackRecord(history);
+  const staleIds = useMemo(
+    // eslint-disable-next-line react-hooks/purity -- "now" must be read at view time; gated on mounted so SSR stays deterministic
+    () => (mounted ? new Set(staleUnresolved(history, Date.now()).map((e) => e.id)) : new Set<string>()),
+    [mounted, history]
+  );
+
+  // Push local history to the user's own Firebase whenever it changes.
+  // No state writes here: failures stay silent and local remains the source of truth.
+  useEffect(() => {
+    if (!mounted || history.length === 0 || !isCloudConfigured()) return;
+    pushHistory(history).catch(() => {});
+  }, [mounted, history]);
+
+  if (sharedView) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 py-10">
+        <header className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold text-[var(--text-primary)]">Shared debate report</h1>
+            <p className="text-sm text-[var(--text-secondary)]">Read-only link — no live transcript.</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <ThemeToggle />
+            <button
+              type="button"
+              onClick={dismissShare}
+              className="rounded-md border border-[var(--border-hairline)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+            >
+              Start your own
+            </button>
+          </div>
+        </header>
+        <div className="space-y-5">
+          <ReportCard
+            question={sharedView.question}
+            report={sharedView.report}
+            providerLabel={sharedView.provider}
+            modelId={sharedView.modelId}
+          />
+          <IdeaGraph question={sharedView.question} report={sharedView.report} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10">
-      <header className="mb-8">
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">Debate AI</h1>
-        <p className="text-sm text-[var(--text-secondary)]">
-          Ask a forecasting question, watch an AI panel debate it live, get a calibrated probability report.
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-[var(--text-primary)]">Debate AI</h1>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Ask a forecasting question, watch an AI panel debate it live, get a calibrated probability report.
+          </p>
+        </div>
+        <ThemeToggle />
       </header>
 
       {view === "setup" ? (
-        mounted ? <SetupForm onStart={handleStart} /> : null
+        mounted ? (
+          <div className="space-y-8">
+            <SetupForm onStart={handleStart} />
+            <CloudSync history={history} onHistoryChange={setHistory} />
+            {history.length > 0 && (
+              <section className="space-y-3">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-sm font-medium text-[var(--text-primary)]">Past reports</h2>
+                  {record.resolved > 0 && record.meanBrier !== null && (
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Track record: {record.resolved} resolved · mean Brier {record.meanBrier.toFixed(2)} (0 is
+                      perfect)
+                    </span>
+                  )}
+                </div>
+                {staleIds.size > 0 && (
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    {staleIds.size} forecast{staleIds.size === 1 ? " is" : "s are"} older than 2 weeks and still
+                    unresolved — open {staleIds.size === 1 ? "it" : "them"} to record the outcome.
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    value={historyQuery}
+                    onChange={(e) => setHistoryQuery(e.target.value)}
+                    placeholder="Search past reports…"
+                    aria-label="Search past reports"
+                    className="min-w-0 flex-1 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleExportHistory}
+                    className="shrink-0 rounded-lg border border-[var(--border-hairline)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+                  >
+                    Export
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="shrink-0 rounded-lg border border-[var(--border-hairline)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+                  >
+                    Import
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={handleImportFile}
+                    className="hidden"
+                    aria-hidden
+                    tabIndex={-1}
+                  />
+                </div>
+                {historyError && (
+                  <p className="text-xs text-[var(--status-critical)]" role="alert">
+                    {historyError}
+                  </p>
+                )}
+                <ul className="space-y-2">
+                  {filteredHistory.map((entry) => (
+                    <li
+                      key={entry.id}
+                      className="flex items-center gap-2 rounded-lg border border-[var(--border-hairline)] px-3 py-2.5"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openHistoryEntry(entry)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <span className="block truncate text-sm font-medium text-[var(--text-primary)]">
+                          {entry.question}
+                        </span>
+                        <span className="block text-xs text-[var(--text-muted)]">
+                          {new Date(entry.savedAt).toLocaleDateString()} · {Math.round(entry.probability)}% ·{" "}
+                          {entry.provider}
+                          {entry.usage && entry.usage.inputTokens + entry.usage.outputTokens > 0
+                            ? ` · ${formatTokens(entry.usage.inputTokens + entry.usage.outputTokens)} tok`
+                            : ""}
+                          {entry.resolution
+                            ? ` · Resolved ${entry.resolution.outcome === "yes" ? "Yes" : "No"} · Brier ${brierScore(entry.probability, entry.resolution.outcome).toFixed(2)}`
+                            : ""}
+                        </span>
+                      </button>
+                      {staleIds.has(entry.id) && (
+                        <span className="shrink-0 rounded-sm border border-[var(--accent-fill)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-fill)]">
+                          Due
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHistory(deleteHistoryEntry(entry.id));
+                          deleteRemoteEntry(entry.id).catch(() => {});
+                        }}
+                        aria-label={`Delete report: ${entry.question}`}
+                        className="shrink-0 rounded-md p-1.5 text-[var(--text-muted)] hover:bg-[var(--surface-1)] hover:text-[var(--text-primary)]"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {filteredHistory.length === 0 && (
+                  <p className="text-xs text-[var(--text-muted)]">No past reports match that search.</p>
+                )}
+                <CalibrationChart entries={history} />
+              </section>
+            )}
+          </div>
+        ) : null
       ) : (
         <div className="space-y-5">
           <div className="flex items-center justify-between">
             <div className="flex gap-1 rounded-lg border border-[var(--border-hairline)] p-1">
               <button
                 onClick={() => setTab("debate")}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                disabled={historyView !== null}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-40 ${
                   tab === "debate" ? "bg-[var(--accent-fill)] text-white" : "text-[var(--text-secondary)]"
                 }`}
               >
                 Live debate
               </button>
               <button
+                onClick={() => setTab("meeting")}
+                disabled={historyView !== null || personas.length === 0}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-40 ${
+                  tab === "meeting" ? "bg-[var(--accent-fill)] text-white" : "text-[var(--text-secondary)]"
+                }`}
+              >
+                Meeting
+              </button>
+              <button
                 onClick={() => setTab("report")}
-                disabled={!report}
+                disabled={!shownReport}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-40 ${
                   tab === "report" ? "bg-[var(--accent-fill)] text-white" : "text-[var(--text-secondary)]"
                 }`}
@@ -242,7 +625,7 @@ export function DebateApp() {
                 onClick={handleReset}
                 className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-sm text-[var(--text-secondary)]"
               >
-                New debate
+                {historyView ? "Back to setup" : "New debate"}
               </button>
             )}
           </div>
@@ -253,22 +636,162 @@ export function DebateApp() {
             </div>
           )}
 
+          {failedNames.length > 0 && (
+            <p className="rounded-lg border border-[var(--border-hairline)] px-3.5 py-2.5 text-xs text-[var(--text-secondary)]">
+              {failedNames.join(", ")} couldn&apos;t respond after retries — the debate continued without them and
+              the report is built from the rest.
+            </p>
+          )}
+
+          {researchGaps.length > 0 && (
+            <div className="rounded-lg border border-[var(--border-hairline)] px-3.5 py-2.5">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                Researching knowledge gaps
+              </p>
+              <ul className="space-y-1">
+                {researchGaps.map((gap, i) => (
+                  <li key={i} className="text-xs text-[var(--text-secondary)]">
+                    {gap}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {tab === "debate" ? (
-            <DebateStage
-              personas={personas}
-              turnsByPersona={turnsByPersona}
-              activePersonaIds={activePersonaIds}
-              currentRound={currentRound}
-              totalRounds={totalRounds}
-              generatingReport={generatingReport}
-            />
-          ) : report ? (
-            <ReportCard question={question} report={report} />
+            <>
+              <DebateStage
+                personas={personas}
+                turnsByPersona={turnsByPersona}
+                activePersonaIds={activePersonaIds}
+                currentRound={currentRound}
+                totalRounds={totalRounds}
+                generatingReport={generatingReport}
+                errorsByPersona={errorsByPersona}
+              />
+              <ProbabilityTracker
+                personas={personas}
+                turnsByPersona={turnsByPersona}
+                totalRounds={totalRounds}
+              />
+            </>
+          ) : tab === "meeting" ? (
+            <>
+              <MeetingRoom
+                personas={personas}
+                turnsByPersona={turnsByPersona}
+                activePersonaIds={activePersonaIds}
+                totalRounds={totalRounds}
+                errorsByPersona={errorsByPersona}
+              />
+              <RelationshipGraph
+                personas={personas}
+                turnsByPersona={turnsByPersona}
+                challenges={challenges}
+                totalRounds={totalRounds}
+              />
+            </>
+          ) : shownReport ? (
+            <>
+              <ReportCard
+                question={shownQuestion}
+                report={shownReport}
+                providerLabel={shownMeta?.providerLabel}
+                modelId={shownMeta?.modelId}
+                usage={historyView?.usage ?? usageTotals}
+              />
+              {!historyView && (
+                <ForecastDistribution
+                  personas={personas}
+                  turnsByPersona={turnsByPersona}
+                  moderatorProbability={shownReport.probability}
+                />
+              )}
+              <IdeaGraph question={shownQuestion} report={shownReport} />
+              {historyView?.inputs && (
+                <section className="space-y-1 rounded-lg border border-[var(--border-hairline)] px-3.5 py-3">
+                  <h3 className="text-sm font-medium text-[var(--text-primary)]">Setup</h3>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Panel: {historyView.inputs.personas.map((p) => p.name).join(", ")}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    {historyView.inputs.rounds} round{historyView.inputs.rounds === 1 ? "" : "s"}
+                    {historyView.inputs.enableWebSearch ? " · web search" : ""}
+                    {historyView.inputs.crossExamine ? " · rebuttals" : ""}
+                    {historyView.inputs.redTeam ? " · red team" : ""}
+                    {historyView.inputs.autonomousResearch ? " · research" : ""}
+                    {historyView.inputs.moderatorModelId
+                      ? ` · moderator: ${historyView.inputs.moderatorModelId}`
+                      : ""}
+                  </p>
+                </section>
+              )}
+              {historyView && (
+                <section className="space-y-2 rounded-lg border border-[var(--border-hairline)] px-3.5 py-3">
+                  <h3 className="text-sm font-medium text-[var(--text-primary)]">Outcome</h3>
+                  {historyView.resolution ? (
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      Resolved{" "}
+                      <span className="font-semibold text-[var(--text-primary)]">
+                        {historyView.resolution.outcome === "yes" ? "Yes" : "No"}
+                      </span>{" "}
+                      · Brier {brierScore(historyView.probability, historyView.resolution.outcome).toFixed(2)}{" "}
+                      <span className="text-[var(--text-muted)]">(0 is perfect, 0.25 is a coin flip)</span>
+                    </p>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[var(--text-muted)]">Did it happen?</span>
+                      <button
+                        type="button"
+                        onClick={() => handleResolve("yes")}
+                        className="rounded-sm bg-[var(--accent-fill)] px-3 py-1.5 text-xs font-medium text-white"
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleResolve("no")}
+                        className="rounded-sm border border-[var(--border-hairline)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)]"
+                      >
+                        No
+                      </button>
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
           ) : null}
 
-          {busy && !generatingReport && tab === "debate" && (
+          {shownReport && !busy && !historyView && tab === "report" && (
+            <form onSubmit={handleFollowUp} className="flex gap-2">
+              <input
+                value={followUp}
+                onChange={(e) => setFollowUp(e.target.value)}
+                placeholder="Ask the panel a follow-up…"
+                maxLength={500}
+                aria-label="Ask the panel a follow-up question"
+                className="min-w-0 flex-1 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
+              />
+              <button
+                type="submit"
+                disabled={!followUp.trim()}
+                className="shrink-0 rounded-lg bg-[var(--accent-fill)] px-4 py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
+              >
+                Ask
+              </button>
+            </form>
+          )}
+
+          {busy && !generatingReport && (tab === "debate" || tab === "meeting") && (
             <p className="text-center text-xs text-[var(--text-muted)]">
               Personas in each round answer concurrently, so cards update at the same time.
+            </p>
+          )}
+
+          {usageTotals.inputTokens + usageTotals.outputTokens > 0 && (
+            <p className="text-center text-xs text-[var(--text-muted)]">
+              ≈{formatTokens(usageTotals.inputTokens)} tokens in · ≈{formatTokens(usageTotals.outputTokens)} out
+              this run
             </p>
           )}
         </div>

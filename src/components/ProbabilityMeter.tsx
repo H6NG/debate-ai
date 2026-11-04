@@ -42,9 +42,14 @@ export function ProbabilityMeter({ probability, confidence }: ProbabilityMeterPr
 
       <div className="mt-3 h-3 w-full overflow-hidden rounded-full" style={{ backgroundColor: "var(--accent-track)" }}>
         <div
-          className="h-full rounded-full transition-all"
+          className="h-full rounded-full transition-[width]"
           style={{ width: `${clamped}%`, backgroundColor: "var(--accent-fill)" }}
         />
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-[var(--text-muted)]" aria-hidden>
+        <span>0</span>
+        <span>50</span>
+        <span>100</span>
       </div>
     </div>
   );

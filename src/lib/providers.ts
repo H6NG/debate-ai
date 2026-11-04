@@ -9,6 +9,12 @@ import type { ProviderId } from "./types";
 
 const META_BASE_URL = "https://api.meta.ai/v1";
 
+// Meta's OpenAI-compatible API doesn't support structured JSON output,
+// so structured calls must go through the plain-text fallback directly.
+export function providerSupportsStructuredOutput(provider: ProviderId): boolean {
+  return provider !== "meta";
+}
+
 export function buildModel(provider: ProviderId, apiKey: string, modelId: string): LanguageModel {
   switch (provider) {
     case "anthropic":
@@ -39,6 +45,10 @@ export function buildWebSearchTools(provider: ProviderId, apiKey: string): ToolS
       return { web_search: createOpenAI({ apiKey }).tools.webSearch({}) };
     case "google":
       return { google_search: createGoogle({ apiKey }).tools.googleSearch({}) };
+    case "groq":
+      // Supported on Groq's GPT-OSS models; other model IDs (e.g. Llama)
+      // ignore the tool with a warning, so passing it is safe.
+      return { browser_search: createGroq({ apiKey }).tools.browserSearch({}) };
     default:
       return undefined;
   }

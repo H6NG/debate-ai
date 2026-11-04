@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ExternalLink, Globe } from "lucide-react";
+import { ExternalLink, Globe, MessagesSquare, ShieldAlert, Users, Zap } from "lucide-react";
 import { PROVIDER_CATALOG, getProviderMeta } from "@/lib/provider-catalog";
-import { BUILTIN_PERSONAS } from "@/lib/personas";
+import { BUILTIN_PERSONAS, makeCustomPersona } from "@/lib/personas";
 import { PersonaPicker } from "@/components/PersonaPicker";
-import type { DebateRequest, Persona, ProviderId } from "@/lib/types";
+import type { DebateRequest, DraftedPersona, Persona, ProviderId } from "@/lib/types";
 
 const DEFAULT_PERSONA_IDS = ["optimist", "skeptic", "data-analyst", "pragmatist", "contrarian"];
+const QUICK_PERSONA_IDS = ["optimist", "skeptic", "data-analyst"];
 
 // Plain localStorage read/writes, not a parameterized-key hook: a hook whose
 // internal useState is keyed by a *changing* string (e.g. per-provider) keeps
@@ -32,6 +33,10 @@ export function SetupForm({ onStart }: SetupFormProps) {
   const [modelId, setModelIdState] = useState(() => readStored(`debate-ai:modelId:${providerId}`, meta.models[0].id));
   const [rounds, setRounds] = useState(2);
   const [enableWebSearch, setEnableWebSearch] = useState(false);
+  const [crossExamine, setCrossExamine] = useState(false);
+  const [redTeam, setRedTeam] = useState(false);
+  const [autonomousResearch, setAutonomousResearch] = useState(false);
+  const [moderatorModelId, setModeratorModelId] = useState("");
   const [personas, setPersonas] = useState<Persona[]>(() =>
     BUILTIN_PERSONAS.filter((p) => DEFAULT_PERSONA_IDS.includes(p.id))
   );
@@ -40,6 +45,87 @@ export function SetupForm({ onStart }: SetupFormProps) {
     () => question.trim().length >= 10 && apiKey.trim().length > 0 && modelId.trim().length > 0 && personas.length >= 2,
     [question, apiKey, modelId, personas]
   );
+  const canDraft = question.trim().length >= 10 && apiKey.trim().length > 0 && modelId.trim().length > 0;
+
+  const [drafts, setDrafts] = useState<DraftedPersona[]>([]);
+  const [draftSelected, setDraftSelected] = useState<Set<number>>(new Set());
+  const [drafting, setDrafting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [aiPicking, setAiPicking] = useState(false);
+
+  async function handleAiPick() {
+    if (!canDraft || aiPicking) return;
+    setAiPicking(true);
+    setDraftError(null);
+    try {
+      const res = await fetch("/api/pick-personas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: question.trim(),
+          provider: providerId,
+          apiKey: apiKey.trim(),
+          modelId: modelId.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+      const ids: string[] = Array.isArray(data?.personaIds) ? data.personaIds : [];
+      const picked = BUILTIN_PERSONAS.filter((p) => ids.includes(p.id));
+      if (picked.length < 2) throw new Error("The model did not return a usable panel — try again or pick manually.");
+      setPersonas([...picked, ...personas.filter((p) => p.custom)]);
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : "Could not pick a panel.");
+    } finally {
+      setAiPicking(false);
+    }
+  }
+
+  async function handleDraft() {
+    if (!canDraft || drafting) return;
+    setDrafting(true);
+    setDraftError(null);
+    try {
+      const res = await fetch("/api/draft-panel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: question.trim(),
+          provider: providerId,
+          apiKey: apiKey.trim(),
+          modelId: modelId.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+      const suggested: DraftedPersona[] = Array.isArray(data?.personas) ? data.personas : [];
+      setDrafts(suggested);
+      setDraftSelected(new Set(suggested.map((_, i) => i)));
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : "Could not draft a panel.");
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  function toggleDraft(index: number) {
+    setDraftSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  function addDraftsToPanel() {
+    const existingNames = new Set(personas.map((p) => p.name.toLowerCase()));
+    const added = drafts
+      .filter((d, i) => draftSelected.has(i) && !existingNames.has(d.name.toLowerCase()))
+      .map((d) => makeCustomPersona(d.name, d.lens, d.tagline));
+    if (added.length > 0) setPersonas([...personas, ...added]);
+    setDrafts([]);
+    setDraftSelected(new Set());
+  }
 
   function setApiKey(next: string) {
     setApiKeyState(next);
@@ -59,6 +145,16 @@ export function SetupForm({ onStart }: SetupFormProps) {
     setApiKeyState(readStored(`debate-ai:apiKey:${next}`, ""));
   }
 
+  function applyQuickMode() {
+    setRounds(1);
+    setCrossExamine(false);
+    setRedTeam(false);
+    setAutonomousResearch(false);
+    setModelId(meta.quickModelId);
+    window.localStorage.setItem(`debate-ai:modelId:${providerId}`, meta.quickModelId);
+    setPersonas(BUILTIN_PERSONAS.filter((p) => QUICK_PERSONA_IDS.includes(p.id)));
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canStart) return;
@@ -70,6 +166,10 @@ export function SetupForm({ onStart }: SetupFormProps) {
       personas,
       rounds,
       enableWebSearch: meta.webSearch === "native" ? enableWebSearch : false,
+      crossExamine,
+      redTeam,
+      autonomousResearch,
+      ...(moderatorModelId.trim().length > 0 ? { moderatorModelId: moderatorModelId.trim() } : {}),
     });
   }
 
@@ -137,6 +237,22 @@ export function SetupForm({ onStart }: SetupFormProps) {
       </div>
 
       <div className="space-y-2">
+        <label htmlFor="moderatorModel" className="text-sm font-medium text-[var(--text-primary)]">
+          Moderator model <span className="font-normal text-[var(--text-muted)]">(optional)</span>
+        </label>
+        <input
+          id="moderatorModel"
+          value={moderatorModelId}
+          onChange={(e) => setModeratorModelId(e.target.value)}
+          placeholder={`Defaults to panel model (${modelId || "…"})`}
+          className="w-full rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--accent-fill)]"
+        />
+        <p className="text-xs text-[var(--text-muted)]">
+          Routes the final report (and gap detection) to a stronger model while the panel runs cheap.
+        </p>
+      </div>
+
+      <div className="space-y-2">
         <label htmlFor="apiKey" className="text-sm font-medium text-[var(--text-primary)]">
           {meta.label} API key
         </label>
@@ -184,6 +300,88 @@ export function SetupForm({ onStart }: SetupFormProps) {
       </div>
 
       <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setCrossExamine((v) => !v)}
+          aria-pressed={crossExamine}
+          className={`flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left ${
+            crossExamine ? "border-[var(--accent-fill)] bg-[var(--accent-track)]/20" : "border-[var(--border-hairline)]"
+          }`}
+        >
+          <MessagesSquare size={16} className="mt-0.5 shrink-0 text-[var(--accent-fill)]" />
+          <span>
+            <span className="block text-sm font-medium text-[var(--text-primary)]">
+              Direct rebuttals between personas
+            </span>
+            <span className="block text-xs text-[var(--text-muted)]">
+              One extra round where each persona challenges another head-on. Uses about {personas.length} more
+              model calls.
+            </span>
+          </span>
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setRedTeam((v) => !v)}
+          aria-pressed={redTeam}
+          className={`flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left ${
+            redTeam ? "border-[var(--accent-fill)] bg-[var(--accent-track)]/20" : "border-[var(--border-hairline)]"
+          }`}
+        >
+          <ShieldAlert size={16} className="mt-0.5 shrink-0 text-[var(--accent-fill)]" />
+          <span>
+            <span className="block text-sm font-medium text-[var(--text-primary)]">Red-team round</span>
+            <span className="block text-xs text-[var(--text-muted)]">
+              The whole panel attacks the consensus at once in one extra round. Uses about {personas.length} more
+              model calls.
+            </span>
+          </span>
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setAutonomousResearch((v) => !v)}
+          aria-pressed={autonomousResearch}
+          className={`flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left ${
+            autonomousResearch
+              ? "border-[var(--accent-fill)] bg-[var(--accent-track)]/20"
+              : "border-[var(--border-hairline)]"
+          }`}
+        >
+          <Globe size={16} className="mt-0.5 shrink-0 text-[var(--accent-fill)]" />
+          <span>
+            <span className="block text-sm font-medium text-[var(--text-primary)]">
+              Autonomous research round
+            </span>
+            <span className="block text-xs text-[var(--text-muted)]">
+              The panel names its biggest knowledge gaps, researches them, and debates the findings. Uses about{" "}
+              {personas.length + 1} more model calls. Works best with web search on.
+            </span>
+          </span>
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={applyQuickMode}
+          className="flex w-full items-center gap-2 rounded-lg border border-dashed border-[var(--border-hairline)] px-3 py-2.5 text-left hover:bg-[var(--surface-1)]"
+        >
+          <Zap size={16} className="shrink-0 text-[var(--accent-fill)]" />
+          <span>
+            <span className="block text-sm font-medium text-[var(--text-primary)]">Quick debate</span>
+            <span className="block text-xs text-[var(--text-muted)]">
+              1 round, 3 personas, fast model — cheapest way to scout a question.
+            </span>
+          </span>
+        </button>
+      </div>
+
+      <div className="space-y-2">
         <label className="text-sm font-medium text-[var(--text-primary)]">Research</label>
         {meta.webSearch === "native" && (
           <button
@@ -217,12 +415,99 @@ export function SetupForm({ onStart }: SetupFormProps) {
         )}
       </div>
 
-      <PersonaPicker selected={personas} onChange={setPersonas} />
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={handleDraft}
+          disabled={!canDraft || drafting}
+          className="flex w-full items-center gap-2.5 rounded-lg border border-[var(--border-hairline)] px-3 py-2.5 text-left disabled:opacity-40"
+        >
+          <Users size={16} className="mt-0.5 shrink-0 text-[var(--accent-fill)]" />
+          <span>
+            <span className="block text-sm font-medium text-[var(--text-primary)]">
+              {drafting ? "Recruiting experts…" : "Draft a panel from the question"}
+            </span>
+            <span className="block text-xs text-[var(--text-muted)]">
+              Recruits domain experts tailored to this question (engineers, analysts, strategists…). One extra
+              model call.
+            </span>
+          </span>
+        </button>
+        {draftError && (
+          <p className="text-xs text-[var(--status-critical)]" role="alert">
+            {draftError}
+          </p>
+        )}
+        {drafts.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-[var(--border-hairline)] p-3">
+            {drafts.map((d, i) => {
+              const isSelected = draftSelected.has(i);
+              return (
+                <button
+                  key={`${d.name}-${i}`}
+                  type="button"
+                  onClick={() => toggleDraft(i)}
+                  aria-pressed={isSelected}
+                  className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                    isSelected
+                      ? "border-[var(--accent-fill)] bg-[var(--accent-track)]/20"
+                      : "border-[var(--border-hairline)] hover:bg-[var(--surface-1)]"
+                  }`}
+                >
+                  <div className="text-sm font-medium text-[var(--text-primary)]">{d.name}</div>
+                  <div className="text-xs text-[var(--text-secondary)]">{d.tagline}</div>
+                </button>
+              );
+            })}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={addDraftsToPanel}
+                disabled={draftSelected.size === 0}
+                className="rounded-md bg-[var(--accent-fill)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+              >
+                Add selected to panel
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraftSelected(new Set(drafts.map((_, i) => i)))}
+                className="rounded-md px-2 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setDraftSelected(new Set())}
+                className="rounded-md px-2 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+              >
+                Select none
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <PersonaPicker
+        selected={personas}
+        onChange={setPersonas}
+        onAiPick={handleAiPick}
+        aiPicking={aiPicking}
+        aiPickDisabled={!canDraft}
+      />
 
       <p className="text-center text-xs text-[var(--text-muted)]">
-        ~{personas.length * rounds + 1} model calls this run ({personas.length} personas &times; {rounds} round
-        {rounds > 1 ? "s" : ""}, plus 1 for the report). More personas and rounds use more tokens and take longer —
-        and personas in a round run concurrently, so a big panel can also trip a provider&apos;s rate limit.
+        ~
+        {personas.length * rounds +
+          (crossExamine ? personas.length : 0) +
+          (redTeam ? personas.length : 0) +
+          (autonomousResearch ? personas.length + 1 : 0) +
+          1}{" "}
+        model calls this run ({personas.length} personas &times; {rounds} round{rounds > 1 ? "s" : ""}
+        {crossExamine ? " + direct rebuttals" : ""}
+        {redTeam ? " + red team" : ""}
+        {autonomousResearch ? " + research round" : ""}, plus 1 for the report). More personas and rounds use more
+        tokens and take longer — and personas in a round run concurrently (at most 5 at a time), so a big panel can
+        also trip a provider&apos;s rate limit.
       </p>
 
       <button

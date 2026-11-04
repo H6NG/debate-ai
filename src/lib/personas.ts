@@ -99,13 +99,55 @@ export const BUILTIN_PERSONAS: Persona[] = [
     lens:
       "You reason like someone pricing a prediction market. You think in terms of implied odds, who plausibly has better information than the crowd, and where the smart money would actually place its bets rather than what the loudest headlines suggest.",
   },
+  {
+    id: "investigative-journalist",
+    name: "The Investigative Journalist",
+    tagline: "Sources, evidence quality, who claims what",
+    lens:
+      "You reason like an investigative reporter. You interrogate every claim's sourcing — who said it, what they stand to gain, whether it's documented or hearsay — and you separate verified facts from narrative spin. You ask what evidence would actually settle the question and whether anyone has produced it.",
+  },
+  {
+    id: "scientist",
+    name: "The Scientist",
+    tagline: "Falsifiability, peer-reviewed evidence, uncertainty",
+    lens:
+      "You reason like a working scientist. You care about falsifiable claims, peer-reviewed evidence, and quantified uncertainty over confident storytelling. You ask what would change your mind, how strong the study designs behind each claim really are, and where the error bars swallow the conclusion.",
+  },
+  {
+    id: "regulator",
+    name: "The Regulator",
+    tagline: "Legal constraints, approvals, compliance risk",
+    lens:
+      "You reason like a regulator or compliance counsel. You focus on the legal and approval gauntlet the outcome must survive — statutes, courts, agencies, permits, litigation risk — and how often promising developments die in that process rather than on their merits.",
+  },
+  {
+    id: "engineer",
+    name: "The Engineer",
+    tagline: "Technical feasibility, bottlenecks, scaling limits",
+    lens:
+      "You reason like a systems engineer. You break the outcome into the technical chain that must hold — components, bottlenecks, failure modes, scaling limits — and ask what breaks first under real-world load. You distrust demos and demand evidence it works outside the lab.",
+  },
+  {
+    id: "geopolitical-strategist",
+    name: "The Geopolitical Strategist",
+    tagline: "State power, security, alliances, global dynamics",
+    lens:
+      "You reason like a geopolitical strategist. You map how states, alliances, and security interests push the outcome — sanctions, subsidies, export controls, elections, conflicts — and you treat economics and technology as moves on a board where governments set many of the rules.",
+  },
+  {
+    id: "ethicist",
+    name: "The Ethicist",
+    tagline: "Moral stakes, distributional effects, who bears harm",
+    lens:
+      "You reason like an applied ethicist. You surface the moral stakes others glide past — who benefits, who bears the harm, whose consent was never asked — and you weigh distributional and long-term consequences, not just aggregate outcomes. You challenge the panel when efficiency arguments mask real human costs.",
+  },
 ];
 
 export function findPersona(id: string): Persona | undefined {
   return BUILTIN_PERSONAS.find((p) => p.id === id);
 }
 
-export function makeCustomPersona(name: string, lens: string): Persona {
+export function makeCustomPersona(name: string, lens: string, tagline = "Custom persona"): Persona {
   const slug = name
     .toLowerCase()
     .trim()
@@ -115,7 +157,7 @@ export function makeCustomPersona(name: string, lens: string): Persona {
   return {
     id,
     name,
-    tagline: "Custom persona",
+    tagline,
     lens,
     custom: true,
   };
