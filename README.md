@@ -1,7 +1,33 @@
-# Debate AI
+<p align="center">
+  <img src="public/logo.svg" alt="Debate AI logo" width="132" />
+</p>
 
-Ask a forecasting question, watch a panel of AI personas debate it live, and get
-back a report with the strongest pros/cons and a calibrated probability estimate.
+<h1 align="center">Debate AI</h1>
+
+<p align="center">
+  <strong>Ask the future. Argue about it.</strong><br />
+  Ask a forecasting question, watch a panel of AI personas debate it live, and get
+  back a report with the strongest pros/cons and a calibrated probability estimate.
+</p>
+
+<p align="center">
+  <a href="https://github.com/H6NG/debate-ai/releases"><img src="https://img.shields.io/badge/version-1.1.0-2a78d6" alt="Version 1.1.0" /></a>
+  <img src="https://img.shields.io/badge/Next.js-16-black" alt="Next.js 16" />
+  <img src="https://img.shields.io/badge/React-19-61dafb" alt="React 19" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178c6" alt="TypeScript 5" />
+  <img src="https://img.shields.io/badge/providers-6-orange" alt="6 providers" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" /></a>
+</p>
+
+<p align="center">
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#supported-providers">Providers</a> ·
+  <a href="#running-locally">Run locally</a> ·
+  <a href="#desktop-app-macos">Desktop app</a> ·
+  <a href="#privacy--api-keys">Privacy</a>
+</p>
+
+---
 
 ## How it works
 
