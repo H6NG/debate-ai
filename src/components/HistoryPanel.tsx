@@ -98,7 +98,7 @@ export function HistoryPanel({
               {error}
             </p>
           )}
-          <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+          <ul className="nice-scroll min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {entries.map((entry) => (
               <li
                 key={entry.id}

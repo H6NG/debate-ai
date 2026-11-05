@@ -508,10 +508,10 @@ export function DebateApp() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10 lg:flex-row">
       <aside
-        className={`order-2 w-full shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out lg:order-1 ${sidebarCollapsed ? "lg:w-16" : "lg:w-72"}`}
+        className={`order-2 w-full shrink-0 transition-[width] duration-300 ease-in-out lg:order-1 ${sidebarCollapsed ? "lg:w-16" : "lg:w-72"}`}
       >
         <div
-          className={`flex flex-col space-y-5 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] transition-[padding] duration-300 ease-in-out lg:sticky lg:top-10 lg:max-h-[calc(100vh-5rem)] ${sidebarCollapsed ? "p-2" : "p-4"}`}
+          className={`flex flex-col space-y-5 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] shadow-sm transition-[padding] duration-300 ease-in-out lg:sticky lg:top-10 lg:max-h-[calc(100vh-5rem)] ${sidebarCollapsed ? "p-2" : "p-4"}`}
         >
           {!sidebarCollapsed && (
             <div className="animate-sidebar-in">
@@ -544,7 +544,12 @@ export function DebateApp() {
               onClick={() => setShowSettings(true)}
               aria-label="Open settings"
               title="Settings"
-              className="rounded-md border border-[var(--border-hairline)] p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+              aria-pressed={showSettings}
+              className={`rounded-md border p-2 hover:bg-[var(--surface-1)] ${
+                showSettings
+                  ? "border-[var(--accent-fill)] text-[var(--accent-fill)]"
+                  : "border-[var(--border-hairline)] text-[var(--text-secondary)]"
+              }`}
             >
               <SettingsIcon size={15} />
             </button>

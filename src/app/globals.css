@@ -101,6 +101,22 @@ body {
   outline-offset: 2px;
 }
 
+/* Slim, theme-matched scrollbar for the sidebar history list. */
+.nice-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-hairline) transparent;
+}
+.nice-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.nice-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-hairline);
+  border-radius: 3px;
+}
+.nice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* Sidebar content settles in when the rail unrolls. */
 @keyframes sidebar-fade-in {
   from {
