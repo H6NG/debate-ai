@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test src/lib/probability.test.mjs src/lib/metrics.test.mjs",
+    "test": "node --test src/lib/probability.test.mjs src/lib/metrics.test.mjs src/lib/provider-start.test.mjs",
     "benchmark": "node scripts/benchmark.mjs",
     "desktop:dev": "electron .",
     "desktop:smoke": "node electron/main.js --smoke",

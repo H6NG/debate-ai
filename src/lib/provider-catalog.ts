@@ -84,3 +84,10 @@ export function getProviderMeta(id: ProviderId): ProviderMeta {
   if (!meta) throw new Error(`Unknown provider: ${id}`);
   return meta;
 }
+
+// The single provider holding a usable key, or null when there is nothing
+// to auto-select: no keys at all, or two or more (then the user decides).
+export function soleKeyedProviderId(keys: Record<string, string>): ProviderId | null {
+  const keyed = PROVIDER_CATALOG.filter((p) => (keys[p.id] ?? "").trim().length > 0);
+  return keyed.length === 1 ? keyed[0].id : null;
+}

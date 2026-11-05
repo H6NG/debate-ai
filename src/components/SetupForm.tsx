@@ -6,6 +6,7 @@ import { FALLBACK_SAMPLE_QUESTIONS, loadSampleQuestions, pickRandom } from "@/li
 import { getProviderMeta } from "@/lib/provider-catalog";
 import { BUILTIN_PERSONAS, makeCustomPersona } from "@/lib/personas";
 import { PersonaPicker } from "@/components/PersonaPicker";
+import { buildStartError } from "@/lib/start-validation";
 import type { DebateRequest, DraftedPersona, Persona, ProviderId } from "@/lib/types";
 
 const DEFAULT_PERSONA_IDS = ["optimist", "skeptic", "data-analyst", "pragmatist", "contrarian"];
@@ -73,12 +74,20 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
   );
   const canDraft = question.trim().length >= 10 && apiKey.trim().length > 0 && modelId.trim().length > 0;
   const stepValid = step === 1 ? question.trim().length >= 10 : personas.length >= 2;
-  // Plain-language reasons the Start button is disabled, so it never looks dead.
-  const startBlockers: string[] = [];
-  if (apiKey.trim().length === 0) startBlockers.push("add your API key in Settings");
-  if (modelId.trim().length === 0) startBlockers.push("pick a model in Settings");
-  if (question.trim().length < 10) startBlockers.push("write a question (10+ characters)");
-  if (personas.length < 2) startBlockers.push("pick at least 2 personas");
+  // The Start button stays clickable: a blocked attempt explains itself in
+  // red under the button instead of the button silently refusing clicks.
+  // The message is derived live, so it updates (and clears) as the user
+  // fixes each blocker.
+  const [startAttempted, setStartAttempted] = useState(false);
+  const startError = startAttempted
+    ? buildStartError({
+        question,
+        hasApiKey: apiKey.trim().length > 0,
+        providerLabel: meta.label,
+        hasModel: modelId.trim().length > 0,
+        personaCount: personas.length,
+      })
+    : null;
 
   const [drafts, setDrafts] = useState<DraftedPersona[]>([]);
   const [draftSelected, setDraftSelected] = useState<Set<number>>(new Set());
@@ -189,9 +198,13 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
   }
 
   function handleSubmit(e: React.FormEvent) {
-    window.localStorage.setItem("debate-ai:guided-seen", "1");
     e.preventDefault();
-    if (!canStart) return;
+    if (!canStart) {
+      setStartAttempted(true);
+      return;
+    }
+    setStartAttempted(false);
+    window.localStorage.setItem("debate-ai:guided-seen", "1");
     // Recruited experts ticked in the preview join the debate even when the
     // user never pressed "Add selected to panel".
     const panel = [
@@ -542,8 +555,7 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
           ) : (
             <button
               type="submit"
-              disabled={!canStart}
-              className="flex-1 rounded-lg bg-[var(--accent-fill)] px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
+              className="flex-1 rounded-lg bg-[var(--accent-fill)] px-4 py-3 text-sm font-semibold text-white transition-opacity hover:bg-[var(--accent-fill-strong)]"
             >
               Start debate
             </button>
@@ -556,14 +568,15 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
       ) : (
         <button
           type="submit"
-          disabled={!canStart}
-          className="w-full rounded-lg bg-[var(--accent-fill)] px-4 py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-40"
+          className="w-full rounded-lg bg-[var(--accent-fill)] px-4 py-3 text-sm font-semibold text-white transition-opacity hover:bg-[var(--accent-fill-strong)]"
         >
           Start debate
         </button>
       )}
-      {!canStart && startBlockers.length > 0 && (
-        <p className="-mt-3 text-xs text-[var(--text-muted)]">To start: {startBlockers.join(" · ")}.</p>
+      {startError && (
+        <p role="alert" className="-mt-3 text-sm font-medium text-[var(--status-critical)]">
+          {startError}
+        </p>
       )}
     </form>
   );

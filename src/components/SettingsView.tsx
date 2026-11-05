@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ArrowLeft, Check, ExternalLink, Eye, EyeOff, Trash2, X } from "lucide-react";
-import { PROVIDER_CATALOG } from "@/lib/provider-catalog";
+import { PROVIDER_CATALOG, soleKeyedProviderId } from "@/lib/provider-catalog";
 import { BUILTIN_PERSONAS } from "@/lib/personas";
 import { CloudSync } from "@/components/CloudSync";
 import pkg from "../../package.json";
@@ -31,9 +31,18 @@ export function SettingsView({ onBack, history, onHistoryChange }: SettingsViewP
   const [models, setModels] = useState<Record<string, string>>(() =>
     Object.fromEntries(PROVIDER_CATALOG.map((p) => [p.id, readStored(`debate-ai:modelId:${p.id}`, "")]))
   );
-  const [defaultProvider, setDefaultProvider] = useState<ProviderId>(
-    () => readStored("debate-ai:provider", "anthropic") as ProviderId
-  );
+  const [defaultProvider, setDefaultProvider] = useState<ProviderId>(() => {
+    const stored = readStored("debate-ai:provider", "anthropic") as ProviderId;
+    // A sole keyed provider is the default, even when the stored choice is
+    // stale from before auto-selection existed.
+    const only = soleKeyedProviderId(
+      Object.fromEntries(PROVIDER_CATALOG.map((p) => [p.id, readStored(`debate-ai:apiKey:${p.id}`, "")]))
+    );
+    if (only !== null && only !== stored && typeof window !== "undefined") {
+      window.localStorage.setItem("debate-ai:provider", only);
+    }
+    return only ?? stored;
+  });
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const [moderatorModelId, setModeratorModelId] = useState(() =>
     readStored("debate-ai:moderatorModelId", "")
@@ -61,9 +70,18 @@ export function SettingsView({ onBack, history, onHistoryChange }: SettingsViewP
   }
 
   function updateKey(id: string, value: string): void {
-    setKeys((prev) => ({ ...prev, [id]: value }));
+    const nextKeys = { ...keys, [id]: value };
+    setKeys(nextKeys);
     writeStored(`debate-ai:apiKey:${id}`, value);
     flash(`key-${id}`);
+    // With exactly one keyed provider there is nothing to decide: make it
+    // the default so the debate uses the key the user just entered. With
+    // two or more keys, leave the choice to the user.
+    const only = soleKeyedProviderId(nextKeys);
+    if (only !== null && only !== defaultProvider) {
+      setDefaultProvider(only);
+      writeStored("debate-ai:provider", only);
+    }
   }
 
   function updateModel(id: string, value: string): void {
