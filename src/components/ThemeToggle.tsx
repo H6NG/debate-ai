@@ -35,7 +35,7 @@ export function ThemeToggle() {
       type="button"
       onClick={cycle}
       aria-label={`Theme: ${theme}. Activate to change.`}
-      className="flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-hairline)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+      className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border-hairline)] px-2.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-1)]"
     >
       {theme === "light" ? <Sun size={13} /> : theme === "dark" ? <Moon size={13} /> : <Monitor size={13} />}
       {theme === "auto" ? "Auto" : theme === "light" ? "Light" : "Dark"}

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 52" role="img" aria-label="Debate AI logo">
+  <!-- Two opposing speech bubbles; the white node in the overlap is where
+       the panel's estimates meet. Brand blues match the app accent. -->
+  <rect x="3" y="6" width="36" height="28" rx="7" fill="#2a78d6"/>
+  <path d="M13 33 L13 45 L25 33 Z" fill="#2a78d6"/>
+  <rect x="33" y="6" width="36" height="28" rx="7" fill="#7fb0ec"/>
+  <path d="M47 33 L59 45 L59 33 Z" fill="#7fb0ec"/>
+  <rect x="33" y="6" width="7" height="28" fill="#2a78d6" opacity="0.55"/>
+  <circle cx="36.5" cy="20" r="3.2" fill="#ffffff"/>
+</svg>

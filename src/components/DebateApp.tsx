@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import Image from "next/image";
 import { PanelLeftClose, PanelLeftOpen, Plus, Settings as SettingsIcon } from "lucide-react";
 import { SettingsView } from "@/components/SettingsView";
 import { SetupForm } from "@/components/SetupForm";
@@ -87,6 +88,13 @@ export function DebateApp() {
     window.localStorage.setItem("debate-ai:tutorial-seen", "1");
     setTutorialOpen(false);
   }
+
+  // sidebarCollapsed is initialized from localStorage, which the server
+  // cannot see: rendering from it directly hydrates differently on the
+  // client (collapsed) than on the server (expanded) and React discards
+  // the tree. Gate it on `mounted` so the first client render matches the
+  // server, then the saved preference applies.
+  const collapsed = mounted && sidebarCollapsed;
   const [tab, setTab] = useState<Tab>("debate");
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -479,9 +487,12 @@ export function DebateApp() {
     return (
       <div className="mx-auto w-full max-w-3xl px-4 py-10">
         <header className="mb-8 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold text-[var(--text-primary)]">Shared debate report</h1>
-            <p className="text-sm text-[var(--text-secondary)]">Read-only link — no live transcript.</p>
+          <div className="flex items-center gap-3">
+            <Image unoptimized src="/logo.svg" alt="" width={42} height={30} priority className="shrink-0" />
+            <div>
+              <h1 className="text-xl font-semibold text-[var(--text-primary)]">Shared debate report</h1>
+              <p className="text-sm text-[var(--text-secondary)]">Read-only link — no live transcript.</p>
+            </div>
           </div>
           <div className="flex shrink-0 gap-2">
             <ThemeToggle />
@@ -510,63 +521,80 @@ export function DebateApp() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10 lg:flex-row">
       <aside
-        className={`order-2 w-full shrink-0 transition-[width] duration-300 ease-in-out lg:order-1 ${sidebarCollapsed ? "lg:w-16" : "lg:w-72"}`}
+        className={`order-2 w-full shrink-0 transition-[width] duration-300 ease-in-out lg:order-1 ${collapsed ? "lg:w-16" : "lg:w-72"}`}
       >
         <div
-          className={`flex flex-col space-y-5 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] shadow-sm transition-[padding] duration-300 ease-in-out lg:sticky lg:top-10 lg:max-h-[calc(100vh-5rem)] ${sidebarCollapsed ? "p-2" : "p-4"}`}
+          className={`flex flex-col space-y-5 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] shadow-sm transition-[padding] duration-300 ease-in-out lg:sticky lg:top-10 lg:max-h-[calc(100vh-5rem)] ${collapsed ? "p-2" : "p-4"}`}
         >
-          {!sidebarCollapsed && (
-            <div className="animate-sidebar-in">
-              <h1 className="text-xl font-semibold text-[var(--text-primary)]">Debate AI</h1>
-              <p className="text-sm text-[var(--text-secondary)]">Ask the future. Argue about it.</p>
+          {!collapsed && (
+            <div className="animate-sidebar-in flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-track)]/25">
+                <Image unoptimized src="/logo.svg" alt="" width={34} height={25} priority />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-[19px] leading-tight font-semibold tracking-tight text-[var(--text-primary)]">
+                  Debate AI
+                </h1>
+                <p className="text-xs whitespace-nowrap text-[var(--text-secondary)]">Ask the future. Argue about it.</p>
+              </div>
             </div>
           )}
-          <div className={`flex gap-2 ${sidebarCollapsed ? "flex-col items-center" : "items-center"}`}>
-            {sidebarCollapsed ? (
+          {collapsed && (
+            <div className="flex justify-center" title="Debate AI">
+              <Image unoptimized src="/logo.svg" alt="Debate AI" width={36} height={26} priority />
+            </div>
+          )}
+          <div className={`flex gap-2 ${collapsed ? "flex-col items-center gap-2.5" : "items-center"}`}>
+            {collapsed ? (
               <button
                 type="button"
                 onClick={handleReset}
                 aria-label="New debate"
                 title="New debate"
-                className="rounded-md bg-[var(--accent-fill)] p-2 text-white"
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-fill)] text-white shadow-sm transition-colors hover:bg-[var(--accent-fill-strong)]"
               >
-                <Plus size={15} />
+                <Plus size={18} />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleReset}
-                className="flex-1 rounded-md bg-[var(--accent-fill)] px-3 py-2 text-center text-sm font-medium whitespace-nowrap text-white"
+                className="h-10 flex-1 rounded-lg bg-[var(--accent-fill)] px-3 text-center text-sm font-medium whitespace-nowrap text-white shadow-sm transition-colors hover:bg-[var(--accent-fill-strong)]"
               >
                 New debate
               </button>
             )}
+            {collapsed && <div className="h-px w-6 bg-[var(--border-hairline)]" aria-hidden="true" />}
             <button
               type="button"
               onClick={() => setShowSettings(true)}
               aria-label="Open settings"
               title="Settings"
               aria-pressed={showSettings}
-              className={`rounded-md border p-2 hover:bg-[var(--surface-1)] ${
+              className={`flex items-center justify-center border transition-colors hover:bg-[var(--surface-1)] ${
+                collapsed ? "h-10 w-10 rounded-xl" : "h-10 w-10 rounded-lg"
+              } ${
                 showSettings
                   ? "border-[var(--accent-fill)] text-[var(--accent-fill)]"
                   : "border-[var(--border-hairline)] text-[var(--text-secondary)]"
               }`}
             >
-              <SettingsIcon size={15} />
+              <SettingsIcon size={17} />
             </button>
-            {!sidebarCollapsed && <ThemeToggle />}
+            {!collapsed && <ThemeToggle />}
             <button
               type="button"
               onClick={toggleSidebar}
-              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              className="rounded-md border border-[var(--border-hairline)] p-2 text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className={`flex items-center justify-center border border-[var(--border-hairline)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-1)] ${
+                collapsed ? "h-10 w-10 rounded-xl" : "h-10 w-10 rounded-lg"
+              }`}
             >
-              {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+              {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={15} />}
             </button>
           </div>
-          {mounted && !sidebarCollapsed && (
+          {mounted && !collapsed && (
             <div className="animate-sidebar-in flex min-h-0 flex-1 flex-col">
             <HistoryPanel
               entries={filteredHistory}
@@ -589,7 +617,7 @@ export function DebateApp() {
             />
             </div>
           )}
-          {!sidebarCollapsed && (
+          {!collapsed && (
             <button
               type="button"
               onClick={() => setTutorialOpen(true)}

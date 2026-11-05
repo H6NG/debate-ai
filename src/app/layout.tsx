@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Debate AI — multi-agent forecasting debates",
   description: "Ask a question, watch an AI panel debate it live, get a probability estimate.",
+  icons: { icon: "/logo.svg" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
