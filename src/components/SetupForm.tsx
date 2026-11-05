@@ -150,11 +150,24 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
     });
   }
 
+  // Recruited experts that are ticked but not yet added to the panel.
+  // Starting the debate must include them: the separate "Add selected"
+  // button is easy to miss, and a user who recruited experts and pressed
+  // Start expects them in the room, not left behind in this preview list.
+  function collectPendingDrafts(): DraftedPersona[] {
+    const names = new Set(personas.map((p) => p.name.toLowerCase()));
+    const pending: DraftedPersona[] = [];
+    drafts.forEach((d, i) => {
+      const key = d.name.toLowerCase();
+      if (!draftSelected.has(i) || names.has(key)) return;
+      names.add(key);
+      pending.push(d);
+    });
+    return pending;
+  }
+
   function addDraftsToPanel() {
-    const existingNames = new Set(personas.map((p) => p.name.toLowerCase()));
-    const added = drafts
-      .filter((d, i) => draftSelected.has(i) && !existingNames.has(d.name.toLowerCase()))
-      .map((d) => makeCustomPersona(d.name, d.lens, d.tagline));
+    const added = collectPendingDrafts().map((d) => makeCustomPersona(d.name, d.lens, d.tagline));
     if (added.length > 0) setPersonas([...personas, ...added]);
     setDrafts([]);
     setDraftSelected(new Set());
@@ -179,12 +192,18 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
     window.localStorage.setItem("debate-ai:guided-seen", "1");
     e.preventDefault();
     if (!canStart) return;
+    // Recruited experts ticked in the preview join the debate even when the
+    // user never pressed "Add selected to panel".
+    const panel = [
+      ...personas,
+      ...collectPendingDrafts().map((d) => makeCustomPersona(d.name, d.lens, d.tagline)),
+    ];
     onStart({
       question: question.trim(),
       provider: providerId,
       apiKey: apiKey.trim(),
       modelId: modelId.trim(),
-      personas,
+      personas: panel,
       rounds,
       enableWebSearch: meta.webSearch === "native" ? enableWebSearch : false,
       crossExamine,
@@ -195,6 +214,9 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
         : {}),
     });
   }
+
+  // Panel size the next run will actually have, recruited experts included.
+  const panelCount = personas.length + collectPendingDrafts().length;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -296,7 +318,7 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
               Direct rebuttals between personas
             </span>
             <span className="block text-xs text-[var(--text-muted)]">
-              One extra round where each persona challenges another head-on. Uses about {personas.length} more
+              One extra round where each persona challenges another head-on. Uses about {panelCount} more
               model calls.
             </span>
           </span>
@@ -314,7 +336,7 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
           <span>
             <span className="block text-sm font-medium text-[var(--text-primary)]">Red-team round</span>
             <span className="block text-xs text-[var(--text-muted)]">
-              The whole panel attacks the consensus at once in one extra round. Uses about {personas.length} more
+              The whole panel attacks the consensus at once in one extra round. Uses about {panelCount} more
               model calls.
             </span>
           </span>
@@ -337,7 +359,7 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
             </span>
             <span className="block text-xs text-[var(--text-muted)]">
               The panel names its biggest knowledge gaps, researches them, and debates the findings. Uses about{" "}
-              {personas.length + 1} more model calls. Works best with web search on.
+              {panelCount + 1} more model calls. Works best with web search on.
             </span>
           </span>
         </button>
@@ -462,6 +484,10 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
                 Select none
               </button>
             </div>
+            <p className="text-xs text-[var(--text-muted)]">
+              Ticked experts join the live debate when you press Start debate — adding them to the panel first is
+              optional, and only needed if you want to rearrange or remove them below.
+            </p>
           </div>
         )}
       </div>
@@ -479,12 +505,12 @@ export function SetupForm({ onStart, onOpenSettings }: SetupFormProps) {
 
       <p className="text-center text-xs text-[var(--text-muted)]">
         ~
-        {personas.length * rounds +
-          (crossExamine ? personas.length : 0) +
-          (redTeam ? personas.length : 0) +
-          (autonomousResearch ? personas.length + 1 : 0) +
+        {panelCount * rounds +
+          (crossExamine ? panelCount : 0) +
+          (redTeam ? panelCount : 0) +
+          (autonomousResearch ? panelCount + 1 : 0) +
           1}{" "}
-        model calls this run ({personas.length} personas &times; {rounds} round{rounds > 1 ? "s" : ""}
+        model calls this run ({panelCount} personas &times; {rounds} round{rounds > 1 ? "s" : ""}
         {crossExamine ? " + direct rebuttals" : ""}
         {redTeam ? " + red team" : ""}
         {autonomousResearch ? " + research round" : ""}, plus 1 for the report). More personas and rounds use more

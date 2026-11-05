@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --test src/lib/probability.test.mjs src/lib/metrics.test.mjs",
+    "benchmark": "node scripts/benchmark.mjs",
     "desktop:dev": "electron .",
     "desktop:smoke": "node electron/main.js --smoke",
     "desktop:dist": "next build && electron-builder --mac"

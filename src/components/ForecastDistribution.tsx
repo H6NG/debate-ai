@@ -72,7 +72,7 @@ export function ForecastDistribution({ personas, turnsByPersona, moderatorProbab
             Trimmed mean <span className="font-semibold text-[var(--text-primary)]">{Math.round(trimmed)}%</span>
           </span>
           <span>
-            Spread <span className="font-semibold text-[var(--text-primary)]">{spread} pts</span>
+            Spread <span className="font-semibold text-[var(--text-primary)]">{Math.round(spread * 10) / 10} pts</span>
           </span>
           <span>
             Moderator <span className="font-semibold text-[var(--text-primary)]">{Math.round(moderatorProbability)}%</span>

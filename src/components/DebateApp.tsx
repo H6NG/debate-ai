@@ -379,6 +379,8 @@ export function DebateApp() {
   }
 
   function handleReset() {
+    // Also leave Settings: "New debate" must always land on the setup form.
+    setShowSettings(false);
     setView("setup");
     setHistoryView(null);
     setDemoMode(false);
